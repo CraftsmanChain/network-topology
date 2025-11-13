@@ -1,0 +1,3341 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>智谱集群拓扑监控</title>
+<!-- 引入 vis.js -->
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #0d1421;
+    color: #fff;
+    /* 移除触控高亮与焦点环 */
+    -webkit-tap-highlight-color: transparent;
+}
+#title {
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    padding: 10px;
+    color: #00e5ff;
+    width: calc(100vw - 350px);
+    box-sizing: border-box;
+}
+/* 页面内的拓扑配置切换导航 */
+.profile-nav {
+    text-align: center;
+    font-size: 13px;
+    color: #8aa;
+    width: calc(100vw - 350px);
+    box-sizing: border-box;
+    margin-top: -6px;
+    margin-bottom: 6px;
+}
+.profile-nav a {
+    color: #00e5ff;
+    margin: 0 8px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.profile-nav a.active {
+    color: #ffd166;
+    text-decoration: none;
+}
+#topo {
+    width: calc(100vw - 350px);
+    height: calc(100vh - 50px);
+    float: left;
+    position: relative;
+    /* 移除径向渐变，避免在放大时出现圆形圈 */
+    background: #0a1120;
+    overflow: hidden; /* 避免溢出导致的边缘伪影 */
+}
+/* 独立的画布容器，避免清空 legend */
+.topo-canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+.sidebar {
+    position: absolute;
+    top: 50px;
+    right: 0;
+    width: 350px;
+    height: calc(100% - 50px);
+    background-color: #1a1f2e;
+    border-left: 1px solid #2a3244;
+    padding: 10px;
+    overflow-y: auto;
+}
+.sidebar h2 {
+    margin-top: 0;
+    font-size: 18px;
+    color: #00e5ff;
+}
+.port-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+.port-table th, .port-table td {
+    border: 1px solid #2a3244;
+    padding: 4px;
+    font-size: 12px;
+    text-align: center;
+}
+.port-up { color: #00ff9d; }
+.port-down { color: #ff4d4d; }
+.legend {
+    position: absolute;
+    left: 20px;
+    bottom: 20px;
+    background: rgba(26, 31, 46, 0.85);
+    padding: 8px;
+    border-radius: 5px;
+    z-index: 1000;
+    font-size: 12px;
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    margin: 4px 0;
+}
+/* 新增样式 */
+.status-up {
+    color: #00ff9d;
+    font-weight: bold;
+}
+.status-down {
+    color: #ff4d4d;
+    font-weight: bold;
+}
+/* 集群信息数字颜色 */
+.total-count { color: #ffffff; }   /* 白色 */
+.down-count { color: #ff4d4d; }     /* 红色 */
+.online-count { color: #00ff9d; }  /* 绿色 */
+
+/* 集群信息区域样式 */
+.overview-box {
+    background: #1f2637;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.overview-box p {
+    margin: 6px 0;
+    font-size: 14px;
+}
+
+/* 设备详情区域样式 */
+.device-info-box {
+    background: #1f2637;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.device-info-box p {
+    margin: 6px 0;
+    font-size: 14px;
+}
+.device-info-box b {
+    font-size: 16px;
+    color: #00e5ff;
+}
+
+/* 告警列表样式 */
+.alarm-box {
+    background: #1f2637;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.alarm-box h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    color: #00e5ff;
+}
+.alarm-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.alarm-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 13px;
+}
+.alarm-list li span {
+    flex: 1;
+}
+.alarm-list li.alarm {
+    color: #ff4d4d;
+    animation: blink 1.2s infinite;
+}
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* 整行告警标红 */
+.alarm-row {
+    background-color: #3c1e1e !important;
+    color: #ff4d4d !important;
+}
+
+/* 故障节点原图标闪烁 */
+@keyframes node-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+/* 节点标签颜色：正常节点白色，故障节点红色 */
+.vis-network .vis-label {
+    color: #ffffff !important;
+}
+.vis-network .vis-label.status-down {
+    color: #ff4d4d !important;
+}
+
+/* 专线样式：虚线蓝色，故障红色闪烁 */
+@keyframes dash-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+.dash-line {
+    stroke-dasharray: 8,4;
+    stroke: #00e5ff;
+    stroke-width: 2;
+    fill: none;
+    animation: dash-blink 1s infinite;
+}
+.dash-line.down {
+    stroke: #ff4d4d;
+}
+
+/* 图例中专线样式 */
+.legend-item span.dash-legend {
+    display: inline-block;
+    width: 30px;
+    height: 0;
+    border-top: 2px dashed #00e5ff;
+    margin-right: 10px;
+}
+/* 拓扑重置按钮样式（右下角） */
+.reset-btn {
+    position: absolute;
+    right: 20px;
+    bottom: 20px;
+    z-index: 1100;
+    background: #243049;
+    color: #00e5ff;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.reset-btn:hover {
+    background: #2a3751;
+}
+/* 管理员模式按钮与弹窗样式 */
+.admin-btn {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 1200;
+    background: #243049;
+    color: #00e5ff;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.admin-btn:hover { background: #2a3751; }
+.admin-modal-backdrop {
+    position: fixed;
+    left: 0; top: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 1300;
+    display: none;
+}
+.admin-modal {
+    position: fixed;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 520px;
+    background: #1f2637;
+    border: 1px solid #2a3244;
+    border-radius: 8px;
+    padding: 16px;
+    z-index: 1310;
+    display: none;
+}
+.admin-modal h3 { margin: 0 0 10px 0; color: #00e5ff; font-size: 16px; }
+.admin-modal p { margin: 6px 0; font-size: 13px; }
+.admin-modal .btn-row { margin-top: 12px; display: flex; gap: 8px; }
+.admin-modal .btn {
+    background: #243049;
+    color: #00e5ff;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.admin-modal .btn:hover { background: #2a3751; }
+/* 管理员模式图标配置表单 */
+.admin-modal .form-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.admin-modal label { width: 160px; font-size: 12px; color: #9fb3c8; }
+.admin-modal input[type="text"] { flex: 1; background: #243049; border: 1px solid #2a3244; border-radius: 6px; color: #cfe7ff; padding: 6px 8px; font-size: 12px; }
+
+/* 前台编辑工具条，置于画布上方并可点击 */
+.edit-toolbar {
+    position: absolute;
+    left: 20px;
+    top: 20px;
+    z-index: 1250;
+    background: rgba(26, 31, 46, 0.85);
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 6px 8px;
+    display: flex;
+    gap: 8px;
+    pointer-events: auto;
+}
+.edit-btn {
+    background: #243049;
+    color: #00e5ff;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.edit-btn:hover { background: #2a3751; }
+
+/* 前台编辑弹窗与遮罩，置于最上层 */
+.fe-modal-backdrop {
+    position: fixed;
+    left: 0; top: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 1400;
+    display: none;
+}
+.fe-modal {
+    position: fixed;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 420px;
+    background: #1f2637;
+    border: 1px solid #2a3244;
+    border-radius: 8px;
+    padding: 16px;
+    z-index: 1410;
+    display: none;
+}
+/* 移除焦点环，避免缩放时出现圆形轮廓 */
+#topo-canvas:focus,
+.vis-network:focus,
+#topo-canvas canvas:focus {
+    outline: none !important;
+}
+.vis-network {
+    -webkit-tap-highlight-color: transparent;
+}
+/* 全局禁用焦点环，防止缩放或点击时出现高亮圆形 */
+*:focus { outline: none !important; }
+/* 返回组按钮与组成员设备名使用与 UP 状态一致的绿色 */
+.breadcrumb a#back-to-group { color: #00ff9d; }
+.port-table a[data-device-id] { color: #00ff9d; }
+</style>
+</head>
+<body>
+<div id="title"></div>
+<div id="profile-nav" class="profile-nav">
+  <span style="margin-left:8px;color:#6c7a92;"></span>
+  </div>
+<button id="admin-mode-toggle" class="admin-btn">管理后台</button>
+<div id="topo">
+    <div class="legend" id="legend">
+        <div class="legend-item">
+                <span style="display:inline-block;width:30px;height:0;border-top:2px solid #006400;margin-right:10px;"></span>正常链路
+        </div>
+        <div class="legend-item">
+            <span style="display:inline-block;width:30px;height:0;border-top:2px solid #ffd166;margin-right:10px;"></span>中等负载
+        </div>
+        <div class="legend-item">
+            <span style="display:inline-block;width:30px;height:0;border-top:2px solid #ff4444;margin-right:10px;"></span>故障链路
+        </div>
+        <div class="legend-item">
+            <span class="dash-legend"></span>专线
+        </div>
+    </div>
+    <div id="topo-canvas" class="topo-canvas"></div>
+    <button id="reset-topo" class="reset-btn">重置拓扑</button>
+    <!-- 前台编辑工具条（管理员登录 + edit_mode 时显示） -->
+    <div id="front-edit-toolbar" class="edit-toolbar" style="display:none;">
+      <button id="fe-save" class="edit-btn" onclick="if(window.saveFrontAll){window.saveFrontAll()} else if(window.savePositionsFront){window.savePositionsFront()} else { try{alert('保存函数未初始化，请刷新页面')}catch(e){} }">保存</button>
+      <button id="fe-clear-cache" class="edit-btn" onclick="try{ if(window.clearTopoCaches){ window.clearTopoCaches(); } else { localStorage.removeItem('topology_config_local_cache'); localStorage.removeItem('positions_local_cache'); localStorage.removeItem('topo_cfg_updated'); alert('已清理本地缓存'); location.reload(); } }catch(e){ alert('清理缓存失败: '+e); }">清理缓存</button>
+      <button id="fe-exit" class="edit-btn" onclick="if(window.exitFrontEdit){window.exitFrontEdit()} else { try{ localStorage.removeItem('edit_mode'); localStorage.removeItem('token'); localStorage.removeItem('token_time'); }catch(e){}; location.href='/'; }">退出编辑模式</button>
+    </div>
+  </div>
+<div class="sidebar">
+    <h2 id="sidebar-title">集群信息</h2>
+    <div id="device-info"></div>
+</div>
+
+<!-- 管理员模式弹窗 -->
+<div id="admin-backdrop" class="admin-modal-backdrop"></div>
+<div id="admin-modal" class="admin-modal">
+  <h3>管理员模式 - 配置缺失处理</h3>
+  <div class="form-row"><label for="admin-login-username">管理员用户名</label><input id="admin-login-username" type="text" placeholder="admin"/></div>
+  <div class="form-row"><label for="admin-login-password">管理员密码</label><input id="admin-login-password" type="password" placeholder="******"/></div>
+  <div class="btn-row">
+    <button id="admin-login-btn" class="btn">登录</button>
+    <span id="admin-login-status" style="font-size:12px;color:#9fb3c8;margin-left:8px;">未登录</span>
+  </div>
+  <p id="missing-config-list" style="margin-top:8px;">正在检查配置文件...</p>
+  <div class="btn-row">
+    <button id="download-defaults" class="btn">下载默认配置包</button>
+    <button id="close-admin-modal" class="btn">关闭</button>
+  </div>
+  <p style="margin-top:10px;font-size:12px;color:#9fb3c8;">说明：纯前端页面无法直接写服务器文件，请下载后放置到站点的 <code>config/</code> 目录。</p>
+  <p style="margin-top:4px;font-size:12px;color:#9fb3c8;">已存在的配置不会被覆盖，默认包仅供缺失时补齐。</p>
+  <hr style="border:none;border-top:1px solid #2a3244;margin:10px 0;"/>
+  <h3>图标配置</h3>
+  <div class="form-row"><label for="icon-group">组图标</label><input id="icon-group" type="text" placeholder="./assets/icons/group-default.svg"/></div>
+  <div class="form-row"><label for="icon-device">设备图标</label><input id="icon-device" type="text" placeholder="./assets/icons/device-switch.svg"/></div>
+  <div class="form-row"><label for="icon-device-bad">设备故障图标</label><input id="icon-device-bad" type="text" placeholder="./assets/icons/device-switch-bad.svg"/></div>
+  <div class="form-row"><label for="icon-core">核心交换机图标</label><input id="icon-core" type="text" placeholder="./assets/icons/core-switch.svg"/></div>
+  <div class="form-row"><label for="icon-core-bad">核心交换机故障图标</label><input id="icon-core-bad" type="text" placeholder="./assets/icons/core-switch-bad.svg"/></div>
+  <div class="form-row"><label for="icon-fw-main">防火墙图标（主）</label><input id="icon-fw-main" type="text" placeholder="./assets/icons/firewall-main.svg"/></div>
+  <div class="form-row"><label for="icon-fw-backup">防火墙图标（备）</label><input id="icon-fw-backup" type="text" placeholder="./assets/icons/firewall-backup.svg"/></div>
+  <div class="btn-row">
+    <button id="save-icons" class="btn">保存并下载拓扑配置</button>
+  </div>
+</div>
+
+<!-- 前台编辑弹窗 -->
+<div id="fe-backdrop" class="fe-modal-backdrop"></div>
+<div id="fe-modal" class="fe-modal">
+  <h3>编辑设备属性</h3>
+  <div class="form-row"><label>设备 ID</label><input id="fe-node-id" disabled /></div>
+  <div class="form-row"><label>显示名称</label><input id="fe-node-name" placeholder="显示在拓扑上的名称" /></div>
+  <div class="form-row"><label>设备类型</label>
+    <select id="fe-node-type">
+      <option value="switch">交换机</option>
+      <option value="core_switch">核心交换机</option>
+      <option value="firewall">防火墙</option>
+    </select>
+  </div>
+  <div class="btn-row">
+    <button id="fe-save-prop" class="edit-btn">保存属性</button>
+    <button id="fe-cancel" class="edit-btn">取消</button>
+  </div>
+</div>
+
+<script>
+// Prometheus 地址
+
+
+// 链路互联信息缓存
+let linkMap = new Map();
+
+// 字节单位转换
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// =========== 管理员模式 & 配置加载/生成 ===========
+const CONFIG_PATHS = {
+  groupRules: 'config/group_rules.json',
+  topology: ['config/topology_config.json', 'config/topology.config.json'],
+  positions: 'config/positions.json',
+  linkOverrides: 'config/link_overrides.json',
+  usersLocal: 'config/.users.local'
+};
+
+const DEFAULTS = {
+  groupRules: { version: 1, updatedAt: new Date().toISOString(), groups: [] },
+  topology: {
+    version: 1,
+    backgroundColor: '#1f2637',
+    sidebar: { visible: true, sections: ['overview','filters','search','alerts'] },
+    layout: { mode: 'grid', forceStrength: 0.3, gridCell: 120, compact: true },
+    // 响应式与交互配置（可通过 config/topology_config.json 覆盖）
+    responsive: {
+      auto_fit_on_load: true,           // 渲染完成后自动看全
+      mode: '',                  // 默认看全（contain）；过小则保留原布局（见 min_scale）
+      min_scale: 0.6,                   // 若 fit 后缩放比例 < 0.6，则保留原布局视图
+      small_screen_threshold: 1280,     // 小屏阈值（容器宽度小于此值触发小屏策略）
+      node_scale_small: 0.85,          // 小屏节点尺寸缩放比例
+      font_scale_small: 0.9,           // 小屏字体尺寸缩放比例
+      enable_dragView_on_small: true    // 小屏允许拖动画布
+    },
+    edgeHover: {
+      enabled: true,
+      hoverWidth: 10,                   // 悬停加粗宽度（更明显）
+      hoverColor: '#00ff9d'             // 悬停临时颜色（亮绿，与UP一致）
+    },
+    performance: {
+      lod: {
+        hide_labels_below: 0.0,         // 始终显示设备名称（不隐藏标签）
+        hide_group_members_below: 0.7,
+        thin_edges_below: 0.8,
+        disable_hover_below: 0.5,       // 更少关闭 hover，保证悬停可见
+        disable_blink_below: 0.65
+      }
+    },
+    default_icons: {
+      group: 'icons/sigle-sw.png',
+      group_bad: 'icons/sigle-sw-bad.png',
+      device: 'icons/sw.png',
+      device_bad: 'icons/sw-bad.png',
+      core_switch: 'icons/core.png',
+      core_switch_bad: 'icons/core-bad.png',
+      firewall: 'icons/firewall.png',
+      firewall_bad: 'icons/firewall.png',
+      // 兼容旧字段
+      firewall_main: 'icons/firewall.png',
+      firewall_backup: 'icons/core.png'
+    },
+    features: { line_monitors: { enabled: false, names: [] }, auto_groups: { enabled: false } },
+    refresh: { devices_ms: 5000, links_ms: 3000 },
+    dynamic_links: { debounce_ms: 500, grace_ms: 3000 },
+    display: { showPorts: false, showLabels: 'auto' }
+  },
+  positions: { version: 1, nodes: {}, groups: {} },
+  linkOverrides: { version: 1, whitelist: [], blacklist: [] }
+};
+
+function downloadJson(filename, obj) {
+  try {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) { console.error('下载 JSON 失败:', e); }
+}
+
+async function fetchJsonOrNull(url) {
+  try {
+    const u = url.includes('?') ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
+    const res = await fetch(u, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+// 清理本地缓存并重载页面（前台编辑工具可调用）
+function clearTopoCaches() {
+  try {
+    localStorage.removeItem('topology_config_local_cache');
+    localStorage.removeItem('positions_local_cache');
+    localStorage.removeItem('topo_cfg_updated');
+    alert('已清理本地缓存');
+  } catch (e) {
+    alert('清理缓存失败: ' + e);
+  }
+  try { location.reload(); } catch (_) {}
+}
+
+// 监听跨标签页的配置更新通知，自动刷新视图
+try {
+  window.addEventListener('storage', (e) => {
+    if (e && (e.key === 'topology_config_local_cache' || e.key === 'topo_cfg_updated')) {
+      try { location.reload(); } catch (_) {}
+    }
+  });
+} catch (e) { /* ignore */ }
+
+async function loadConfigs() {
+  const groupRules = await fetchJsonOrNull(CONFIG_PATHS.groupRules);
+  let topology = null;
+  for (const p of CONFIG_PATHS.topology) {
+    topology = await fetchJsonOrNull(p);
+    if (topology) break;
+  }
+  // 将本地缓存的拓扑配置叠加到已加载的配置上（用于前台编辑无后端保存时）
+  try {
+    const ls = localStorage.getItem('topology_config_local_cache');
+    if (ls) {
+      const cached = JSON.parse(ls);
+      if (cached && typeof cached === 'object') {
+        const base = topology || DEFAULTS.topology;
+        const merged = { ...(base || {}), ...(cached || {}) };
+        // 对对象属性做浅合并以保留已有键
+        ['default_icons','visibility','types','aliases','profiles'].forEach(k => {
+          if ((base && base[k]) || (cached && cached[k])) {
+            merged[k] = { ...((base && base[k]) || {}), ...((cached && cached[k]) || {}) };
+          }
+        });
+        topology = merged;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  const positions = await fetchJsonOrNull(CONFIG_PATHS.positions);
+  const linkOverrides = await fetchJsonOrNull(CONFIG_PATHS.linkOverrides);
+  return {
+    groupRules: groupRules || DEFAULTS.groupRules,
+    topology: topology || DEFAULTS.topology,
+    positions: positions || DEFAULTS.positions,
+    linkOverrides: linkOverrides || DEFAULTS.linkOverrides,
+    missing: {
+      groupRules: !groupRules,
+      topology: !topology,
+      positions: !positions,
+      linkOverrides: !linkOverrides
+    }
+  };
+}
+
+function getActiveProfileName(cfg) {
+  try {
+    const params = new URLSearchParams(location.search);
+    const p1 = params.get('profile');
+    if (p1) return p1;
+    // 若未显式传参，则按配置的首页选择
+    const home = (cfg && cfg.home_topology) ? String(cfg.home_topology) : '';
+    if (home) return home;
+    // 本地选择兜底
+    const ls = localStorage.getItem('active_topology');
+    if (ls) return ls;
+  } catch (e) { /* ignore */ }
+  return 'main';
+}
+
+function mergeProfile(base, prof) {
+  if (!prof || typeof prof !== 'object') return base;
+  const out = JSON.parse(JSON.stringify(base || {}));
+  const copy = (k) => { if (typeof prof[k] !== 'undefined') out[k] = prof[k]; };
+  copy('title');
+  // 嵌套对象按键覆盖
+  ['default_icons','types','aliases'].forEach(key => {
+    if (prof[key] && typeof prof[key] === 'object') {
+      out[key] = { ...(out[key] || {}), ...(prof[key] || {}) };
+    }
+  });
+  // visibility 特殊处理：子配置若提供则完全覆盖，不与主配置合并
+  if (prof.visibility && typeof prof.visibility === 'object') {
+    out.visibility = JSON.parse(JSON.stringify(prof.visibility));
+  }
+  return out;
+}
+
+function initProfileNav(cfg) {
+  try {
+    const nav = document.getElementById('profile-nav');
+    if (!nav) return;
+    const active = getActiveProfileName(cfg);
+    const names = (function(){
+      const extra = Object.keys((cfg && cfg.profiles) || {});
+      return ['main', ...extra];
+    })();
+    if (names.length <= 1) {
+      nav.style.display = 'none';
+      return;
+    }
+    nav.style.display = '';
+    // 动态生成导航链接，保持现有样式与交互
+    const makeLabel = (n) => {
+      const p = (cfg && cfg.profiles && cfg.profiles[n]) || {};
+      const t = p.title || '';
+      if (t) return String(t);
+      if (n === 'main') return '集群';
+      if (n === 'ethernet') return '以太网';
+      return n;
+    };
+    // 清空后重建
+    nav.innerHTML = '';
+    names.forEach((n, idx) => {
+      const a = document.createElement('a');
+      a.href = '#';
+      a.setAttribute('data-profile', n);
+      a.textContent = makeLabel(n);
+      a.classList.toggle('active', n === active);
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        try { localStorage.setItem('active_topology', n); } catch (e) {}
+        const url = new URL(window.location.href);
+        url.searchParams.set('profile', n);
+        window.location.href = url.toString();
+      });
+      nav.appendChild(a);
+      if (idx < names.length - 1) {
+        const sep = document.createTextNode(' | ');
+        nav.appendChild(sep);
+      }
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function applyTopologyConfig(cfg) {
+  try {
+    // 解析 active profile 并合并子配置
+    const activeName = getActiveProfileName(cfg);
+    const prof = (cfg && cfg.profiles && cfg.profiles[activeName]) ? cfg.profiles[activeName] : null;
+    const merged = mergeProfile(cfg || DEFAULTS.topology, prof);
+    // 持久化到全局，便于图标等逻辑访问
+    window.__TOPO_CFG = merged || window.__TOPO_CFG || DEFAULTS.topology;
+    if (cfg && cfg.backgroundColor) {
+      // 仅调整整体背景色，不改变现有渐变效果
+      document.body.style.backgroundColor = cfg.backgroundColor;
+    }
+    const sidebarEl = document.querySelector('.sidebar');
+    if (sidebarEl && (cfg && cfg.sidebar)) {
+      sidebarEl.style.display = cfg.sidebar.visible ? 'block' : 'none';
+    }
+    // 配置页面标题（文档标题与顶部可视标题）
+    const titleText = (window.__TOPO_CFG && window.__TOPO_CFG.title) ? String(window.__TOPO_CFG.title) : ((cfg && cfg.title) ? String(cfg.title) : '集群拓扑监控');
+    try { document.title = titleText; } catch (e) {}
+    const titleEl = document.getElementById('title');
+    if (titleEl) { titleEl.textContent = titleText; }
+    // 更新页面内的主/以太网切换导航高亮与行为
+    initProfileNav(cfg);
+    // 初始化可见性结构，确保访问安全
+    try {
+      const v = (window.__TOPO_CFG && window.__TOPO_CFG.visibility) || {};
+      window.__TOPO_CFG.visibility = {
+        devices: v.devices || {},
+        groups: v.groups || {}
+      };
+    } catch (e) { /* ignore */ }
+  } catch (e) { console.warn('应用拓扑配置失败:', e); }
+}
+
+// 专线监控配置获取与过滤
+function getLineMonitorConfig() {
+  const cfg = window.__TOPO_CFG || DEFAULTS.topology;
+  const fm = (cfg.features && cfg.features.line_monitors) || null;
+  const names = (fm && Array.isArray(fm.names)) ? fm.names : [];
+  const enabled = !!(fm && (fm.enabled || names.length > 0));
+  return { enabled, names };
+}
+
+function filterLinesByConfig(lines) {
+  const { names } = getLineMonitorConfig();
+  if (!Array.isArray(lines)) return [];
+  if (!names || names.length === 0) return lines;
+  const set = new Set(names);
+  return lines.filter(l => set.has(l.display_name || l.name));
+}
+
+function showAdminModal(missing) {
+  const backdrop = document.getElementById('admin-backdrop');
+  const modal = document.getElementById('admin-modal');
+  const list = document.getElementById('missing-config-list');
+  const names = [];
+  if (missing.groupRules) names.push('group_rules.json');
+  if (missing.topology) names.push('topology_config.json');
+  if (missing.positions) names.push('positions.json');
+  if (missing.linkOverrides) names.push('link_overrides.json');
+  list.innerHTML = names.length === 0
+    ? '所有配置文件已存在。可以直接编辑并保存下载覆盖。'
+    : ('缺失的配置文件：' + names.join(', '));
+  backdrop.style.display = 'block';
+  modal.style.display = 'block';
+}
+
+function hideAdminModal() {
+  document.getElementById('admin-backdrop').style.display = 'none';
+  document.getElementById('admin-modal').style.display = 'none';
+}
+
+async function initAdminMode() {
+  const cfg = await loadConfigs();
+  applyTopologyConfig(cfg.topology);
+  showAdminModal(cfg.missing);
+  // 免登录一小时：如本地已有登录令牌且未超过1小时，自动启用控件
+  try {
+    const token = localStorage.getItem('token');
+    const tStr = localStorage.getItem('token_time');
+    const t = tStr ? Number(tStr) : 0;
+    const withinOneHour = !!(token && t && (Date.now() - t < 60 * 60 * 1000));
+    const statusEl = document.getElementById('admin-login-status');
+    if (withinOneHour) {
+      statusEl && (statusEl.textContent = '已登录');
+      window.__ADMIN_AUTH = true;
+      setAdminUIEnabled(true);
+    } else {
+      statusEl && (statusEl.textContent = '未登录');
+      window.__ADMIN_AUTH = false;
+      setAdminUIEnabled(false);
+    }
+  } catch (e) { /* ignore */ }
+  // 填充图标输入
+  try {
+    const icons = (window.__TOPO_CFG && window.__TOPO_CFG.default_icons) || {};
+    document.getElementById('icon-group').value = icons.group || '';
+    document.getElementById('icon-device').value = icons.device || '';
+    document.getElementById('icon-device-bad').value = icons.device_bad || '';
+    document.getElementById('icon-core').value = icons.core_switch || '';
+    document.getElementById('icon-core-bad').value = icons.core_switch_bad || '';
+    document.getElementById('icon-fw-main').value = icons.firewall_main || '';
+    document.getElementById('icon-fw-backup').value = icons.firewall_backup || '';
+  } catch (e) { /* ignore */ }
+  // 上面已根据令牌状态处理，无需强制禁用
+}
+
+document.getElementById('admin-mode-toggle').addEventListener('click', () => {
+  // 优先走免登录逻辑：若一小时内已登录，直接打开管理弹窗并启用控件；否则跳转登录
+  try {
+    const token = localStorage.getItem('token');
+    const tStr = localStorage.getItem('token_time');
+    const t = tStr ? Number(tStr) : 0;
+    const withinOneHour = !!(token && t && (Date.now() - t < 60 * 60 * 1000));
+    if (withinOneHour) {
+      if (typeof window.initAdminMode === 'function') { window.initAdminMode(); }
+      return;
+    }
+  } catch (e) { /* ignore */ }
+  window.location.href = '/login.html';
+});
+document.getElementById('close-admin-modal').addEventListener('click', hideAdminModal);
+document.getElementById('admin-backdrop').addEventListener('click', hideAdminModal);
+document.getElementById('download-defaults').addEventListener('click', () => {
+  downloadJson('config/group_rules.json', DEFAULTS.groupRules);
+  downloadJson('config/topology_config.json', DEFAULTS.topology);
+  downloadJson('config/positions.json', DEFAULTS.positions);
+  downloadJson('config/link_overrides.json', DEFAULTS.linkOverrides);
+});
+
+// 读取管理员凭证
+async function loadAdminCreds() {
+  try {
+    const res = await fetch(CONFIG_PATHS.usersLocal);
+    if (!res.ok) return null;
+    const text = await res.text();
+    const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    if (lines.length < 2) return null;
+    return { username: lines[0], password: lines[1] };
+  } catch (e) {
+    return null;
+  }
+}
+
+function setAdminUIEnabled(enabled) {
+  const ids = ['icon-group','icon-device','icon-device-bad','icon-core','icon-core-bad','icon-fw-main','icon-fw-backup','save-icons'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !enabled;
+  });
+}
+
+// 登录逻辑
+document.getElementById('admin-login-btn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('admin-login-status');
+  statusEl.textContent = '正在验证...';
+  const inputUser = document.getElementById('admin-login-username').value.trim();
+  const inputPass = document.getElementById('admin-login-password').value;
+  const creds = await loadAdminCreds();
+  if (!creds) {
+    statusEl.textContent = '未找到 config/.users.local 或格式错误';
+    setAdminUIEnabled(false);
+    return;
+  }
+  if (creds.username === inputUser && creds.password === inputPass) {
+    statusEl.textContent = '已登录';
+    window.__ADMIN_AUTH = true;
+    setAdminUIEnabled(true);
+  } else {
+    statusEl.textContent = '用户名或密码错误';
+    window.__ADMIN_AUTH = false;
+    setAdminUIEnabled(false);
+  }
+});
+
+// 保存图标配置并下载拓扑配置
+document.getElementById('save-icons').addEventListener('click', () => {
+  try {
+    const cfg = window.__TOPO_CFG || DEFAULTS.topology;
+    cfg.default_icons = cfg.default_icons || {};
+    cfg.default_icons.group = document.getElementById('icon-group').value || cfg.default_icons.group || '';
+    cfg.default_icons.device = document.getElementById('icon-device').value || cfg.default_icons.device || '';
+    cfg.default_icons.device_bad = document.getElementById('icon-device-bad').value || cfg.default_icons.device_bad || '';
+    cfg.default_icons.core_switch = document.getElementById('icon-core').value || cfg.default_icons.core_switch || '';
+    cfg.default_icons.core_switch_bad = document.getElementById('icon-core-bad').value || cfg.default_icons.core_switch_bad || '';
+    cfg.default_icons.firewall_main = document.getElementById('icon-fw-main').value || cfg.default_icons.firewall_main || '';
+    cfg.default_icons.firewall_backup = document.getElementById('icon-fw-backup').value || cfg.default_icons.firewall_backup || '';
+    window.__TOPO_CFG = cfg;
+    downloadJson('config/topology_config.json', cfg);
+    // 广播配置更新，触发其他页刷新
+    localStorage.setItem('topo_config_updated', String(Date.now()));
+    // 同页立即应用配置并重载拓扑，确保可见性等变更即时生效
+    applyTopologyConfig(cfg);
+    try { loadTopology(); } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.error('保存图标配置失败:', e);
+  }
+});
+
+// 页面加载时尝试加载配置以应用全局样式与图标设置
+(async function bootstrapConfig() {
+  const cfg = await loadConfigs();
+  applyTopologyConfig(cfg.topology);
+})();
+
+// 监听跨标签页的配置更新通知，自动刷新配置与图标
+window.addEventListener('storage', async (e) => {
+  try {
+    if (e.key === 'topo_config_updated') {
+      const cfg = await loadConfigs();
+      applyTopologyConfig(cfg.topology);
+      // 任意配置更新均重载拓扑，确保可见性、分组与图标同步
+      loadTopology();
+    }
+    if (e.key === 'positions_updated') {
+      // 位置更新：可选择重载拓扑
+      loadTopology();
+    }
+  } catch (err) { /* ignore */ }
+});
+
+// ===== 前台编辑模式（需登录） =====
+(function setupFrontEditMode(){
+  const token = localStorage.getItem('token');
+  const tStr = localStorage.getItem('token_time');
+  const t = tStr ? Number(tStr) : 0;
+  // 工具条显示仅依赖 token 存在；保存动作由后端校验
+  const validAuth = !!token;
+  const auth = validAuth ? { 'Authorization': 'Bearer ' + token } : {};
+  const params = new URLSearchParams(location.search);
+  const editParam = params.get('edit');
+  const editFlag = localStorage.getItem('edit_mode');
+  const editMode = (editParam === '1' || editFlag === '1') && validAuth;
+  window.__EDIT_MODE = editMode;
+  const toolbar = document.getElementById('front-edit-toolbar');
+  if (toolbar) toolbar.style.display = editMode ? 'flex' : 'none';
+  try {
+    if (!editMode) {
+      const reason = !token ? '未检测到登录令牌' : (!((editParam === '1') || (editFlag === '1')) ? '未开启编辑模式' : '未知原因');
+      console.info('[front-edit] 工具条未显示：', reason);
+    }
+  } catch (e) { /* ignore */ }
+
+  async function putConfig(name, obj) {
+    const resp = await fetch(`/api/config/${name}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify(obj)
+    });
+    const data = await resp.json().catch(()=>({}));
+    if (!resp.ok) throw new Error(data.error || '保存失败');
+    return data;
+  }
+
+  async function savePositionsFront() {
+    // 允许使用全局变量 networkData 或挂载到 window 的 networkData
+    const nds = window.networkData || (typeof networkData !== 'undefined' ? networkData : null);
+    if (!window.network || !nds) return;
+    try {
+      const activeName = getActiveProfileName(window.__TOPO_CFG || DEFAULTS.topology);
+      const ids = nds.nodes.getIds();
+      const pos = window.network.getPositions(ids);
+      const out = { version: 1, updatedAt: new Date().toISOString(), nodes: {} };
+      ids.forEach(id => { const p = pos[id]; if (p) out.nodes[id] = { x: p.x, y: p.y }; });
+      // 读取原有 positions 以合并不同 profile 的布局
+      let prev = null;
+      try {
+        const r = await fetch('/api/config/positions');
+        if (r && r.ok) prev = await r.json().catch(()=>null);
+      } catch (e) { /* ignore */ }
+      if (!prev) {
+        try {
+          const r2 = await fetch('/config/positions.json');
+          if (r2 && r2.ok) prev = await r2.json().catch(()=>null);
+        } catch (e) { /* ignore */ }
+      }
+      prev = prev || { version: 1, nodes: {}, profiles: {} };
+      const next = { ...prev };
+      next.version = 1;
+      next.updatedAt = new Date().toISOString();
+      next.profiles = next.profiles || {};
+      if (activeName === 'main') {
+        // 主拓扑：写入顶层 nodes，不影响其它 profile
+        next.nodes = out.nodes;
+      } else {
+        // 子拓扑：写入 profiles[active].nodes，不影响顶层 nodes
+        next.profiles[activeName] = next.profiles[activeName] || {};
+        next.profiles[activeName].nodes = out.nodes;
+      }
+      const res = await putConfig('positions', next);
+      // 本地缓存兜底，便于服务暂不可用时前端仍可恢复位置
+      try { localStorage.setItem(`positions_local_cache_${activeName}`, JSON.stringify(out)); } catch (e) {}
+      localStorage.setItem(`positions_updated_${activeName}`, String(Date.now()));
+      try {
+        if (res && res.message === 'no changes') {
+          console.info('位置未变化（未写入服务器），已应用到当前页面');
+        } else {
+          console.info('位置已保存（已写入服务器），并已应用到当前页面');
+        }
+        // 立即应用当前页面位置，避免刷新前还原
+        Object.entries(out.nodes).forEach(([id, p]) => { try { window.network.moveNode(id, p.x, p.y); } catch (e) {} });
+      } catch (e) {}
+    } catch (e) { console.error('保存位置失败:', e); }
+  }
+
+  async function saveFrontAll() {
+    try {
+      const backdrop = document.getElementById('fe-backdrop');
+      const modal = document.getElementById('fe-modal');
+      const isOpen = backdrop && modal && backdrop.style.display !== 'none' && modal.style.display !== 'none';
+      if (isOpen) {
+        const propBtn = document.getElementById('fe-save-prop');
+        if (propBtn) {
+          propBtn.click();
+          await new Promise(r => setTimeout(r, 50));
+        }
+      }
+      await savePositionsFront();
+    } catch (e) { console.error('保存失败:', e); }
+  }
+
+  async function openFrontEditor(nodeId) {
+    try {
+      const cfgAll = await loadConfigs();
+      const cfg = cfgAll.topology || {};
+      const aliases = cfg.aliases || {}; const types = cfg.types || {};
+      const modal = document.getElementById('fe-modal');
+      const backdrop = document.getElementById('fe-backdrop');
+      document.getElementById('fe-node-id').value = nodeId;
+      document.getElementById('fe-node-name').value = aliases[nodeId] || '';
+      document.getElementById('fe-node-type').value = types[nodeId] || 'switch';
+      backdrop.style.display = 'block';
+      modal.style.display = 'block';
+      // 保存按钮行为
+      const saveBtn = document.getElementById('fe-save-prop');
+      const cancelBtn = document.getElementById('fe-cancel');
+      const close = () => { backdrop.style.display = 'none'; modal.style.display = 'none'; };
+      cancelBtn.onclick = close;
+      saveBtn.onclick = async () => {
+        try {
+          const name = document.getElementById('fe-node-name').value.trim();
+          const type = document.getElementById('fe-node-type').value;
+          const id = document.getElementById('fe-node-id').value;
+          const newCfg = { ...cfg };
+          newCfg.aliases = { ...(cfg.aliases || {}) };
+          newCfg.types = { ...(cfg.types || {}) };
+          if (name) newCfg.aliases[id] = name; else delete newCfg.aliases[id];
+          if (type) newCfg.types[id] = type; else delete newCfg.types[id];
+          await putConfig('topology_config', newCfg);
+          // 同页立即应用最新配置，便于图标与别名即时更新
+          try { window.__TOPO_CFG = newCfg; applyTopologyConfig(newCfg); } catch (e) {}
+          localStorage.setItem('topo_config_updated', String(Date.now()));
+          // 即时更新当前图
+          if (window.networkData && window.networkData.nodes) {
+            const n = window.networkData.nodes.get(id) || { id, status: 0 };
+            const img = getNodeIcon({ id, status: n.status });
+            const fallbackImg = resolveIconUrl((DEFAULTS.topology && DEFAULTS.topology.default_icons && DEFAULTS.topology.default_icons.device) || 'icons/sw.png');
+            window.networkData.nodes.update({ id, label: name || id, image: img || fallbackImg, shape: 'image' });
+          }
+          close();
+        } catch (e) { console.error('保存属性失败:', e); }
+      };
+    } catch (e) { console.error('打开前台编辑弹窗失败:', e); }
+  }
+
+  // 工具条事件
+  const saveBtn = document.getElementById('fe-save');
+  const exitBtn = document.getElementById('fe-exit');
+  if (saveBtn) saveBtn.addEventListener('click', () => saveFrontAll());
+  const exitFrontEdit = () => {
+    // 退出编辑模式：清除登录信息与编辑标记，关闭权限
+    try {
+      localStorage.removeItem('edit_mode');
+      localStorage.removeItem('token');
+      localStorage.removeItem('token_time');
+    } catch (e) {}
+    window.location.href = '/';
+  };
+  if (exitBtn) exitBtn.addEventListener('click', exitFrontEdit);
+  window.exitFrontEdit = exitFrontEdit;
+
+  // 暴露编辑器打开函数供点击事件调用
+  window.openFrontEditor = openFrontEditor;
+  window.savePositionsFront = savePositionsFront;
+  window.saveFrontAll = saveFrontAll;
+})();
+
+// 前台编辑：保存设备显示开关到当前激活的拓扑配置
+async function saveDeviceVisibility(deviceId, visible) {
+  // 获取最新的拓扑配置（优先后端，其次本地文件，最后本地缓存/内存）
+  const token = localStorage.getItem('token') || '';
+  const auth = token ? { 'Authorization': 'Bearer ' + token } : {};
+  let cfg = null;
+  try {
+    const r = await fetch('/api/config/topology_config', { headers: { ...auth } });
+    if (r && r.ok) cfg = await r.json().catch(()=>null);
+  } catch (e) { /* ignore */ }
+  if (!cfg) {
+    try {
+      const r2 = await fetch('/config/topology_config.json');
+      if (r2 && r2.ok) cfg = await r2.json().catch(()=>null);
+    } catch (e) { /* ignore */ }
+  }
+  if (!cfg) {
+    try {
+      const ls = localStorage.getItem('topology_config_local_cache');
+      if (ls) cfg = JSON.parse(ls);
+    } catch (e) { /* ignore */ }
+  }
+  cfg = cfg || (window.__TOPO_CFG ? JSON.parse(JSON.stringify(window.__TOPO_CFG)) : JSON.parse(JSON.stringify(DEFAULTS.topology)));
+  const active = getActiveProfileName(window.__TOPO_CFG || cfg);
+  const target = (function(){
+    if (active === 'main') {
+      cfg.visibility = cfg.visibility || { devices: {}, groups: {} };
+      return cfg.visibility;
+    } else {
+      cfg.profiles = cfg.profiles || {};
+      const prof = cfg.profiles[active] = cfg.profiles[active] || {};
+      prof.visibility = prof.visibility || { devices: {}, groups: {} };
+      return prof.visibility;
+    }
+  })();
+  const isGroup = String(deviceId).startsWith('group:');
+  const gid = isGroup ? String(deviceId).slice(6) : null;
+  if (isGroup) {
+    target.groups = target.groups || {};
+    target.groups[gid] = !!visible;
+  } else {
+    target.devices = target.devices || {};
+    target.devices[deviceId] = !!visible;
+  }
+  // 试图写回后端；若失败则写入本地缓存
+  try {
+    const wr = await fetch('/api/config/topology_config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...auth },
+      body: JSON.stringify(cfg)
+    });
+    if (!wr.ok) throw new Error('server write failed');
+  } catch (e) {
+    try { localStorage.setItem('topology_config_local_cache', JSON.stringify(cfg)); } catch (e2) { /* ignore */ }
+  }
+  // 本页立即应用并重载拓扑
+  try {
+    const v = (((window.__TOPO_CFG || {}).visibility) || { devices: {}, groups: {} });
+    if (isGroup) {
+      v.groups = v.groups || {};
+      v.groups[gid] = !!visible;
+    } else {
+      v.devices = v.devices || {};
+      v.devices[deviceId] = !!visible;
+    }
+    window.__TOPO_CFG.visibility = v;
+    // 广播更新（跨标签页）
+    try { localStorage.setItem('topo_cfg_updated', String(Date.now())); } catch (_) {}
+  } catch (e) {}
+  try { localStorage.setItem('topo_config_updated', String(Date.now())); } catch (e) {}
+  await loadTopology();
+}
+
+// 计算流量占用百分比
+function calcUtil(tx, rx, upPorts) {
+    const maxVal = Math.max(tx||0, rx||0);
+    const totalGb = 400 * 1000 * 1000 * 1000 * upPorts;
+    return totalGb ? (maxVal/totalGb*100) : 0;
+}
+
+// 节点显示名称处理：优先别名，否则取最后一段
+function formatName(name, alias) {
+    if (alias) return alias;
+    const parts = name.split('_');
+    return parts[parts.length - 1];
+}
+
+// 将相对图标路径在本地预览环境下解析为 /web/* 路径
+function resolveIconUrl(icon) {
+    if (!icon) return icon;
+    // 外链或绝对路径直接返回
+    if (/^(https?:)?\/\//.test(icon)) return icon;
+    if (icon.startsWith('/web/')) return icon;
+    // 统一前缀到 /web 下的静态目录（server/main.go 将 webRoot 挂载到 /web）
+    const normalized = icon.replace(/^\.\/?/, '');
+    return '/web/' + normalized;
+}
+
+// 获取节点图标
+function getNodeIcon(d) {
+    const cfg = window.__TOPO_CFG || DEFAULTS.topology;
+    const icons = (cfg && cfg.default_icons) || {};
+    const types = (cfg && cfg.types) || {};
+    const t = types[d.id] || null;
+    const isCore = d.id.includes('25Gnei_AGG01') || d.id.includes('25Gnei_AGG02');
+    // 优先使用类型配置
+    if (t === 'firewall') {
+        return resolveIconUrl(d.status !== 0 ? (icons.firewall_bad || icons.firewall || icons.device_bad || 'icons/firewall.png') : (icons.firewall || icons.device || 'icons/firewall.png'));
+    }
+    if (t === 'core_switch') {
+        return resolveIconUrl(d.status !== 0 ? (icons.core_switch_bad || icons.core_switch || icons.device_bad || 'icons/core-bad.png') : (icons.core_switch || icons.device || 'icons/core.png'));
+    }
+    if (t === 'switch_group') {
+        return resolveIconUrl(d.status !== 0 ? (icons.group_bad || icons.group || icons.device_bad || 'icons/sigle-sw-bad.png') : (icons.group || icons.device || 'icons/sigle-sw.png'));
+    }
+    if (t === 'switch') {
+        return resolveIconUrl(d.status !== 0 ? (icons.device_bad || icons.device || 'icons/sw-bad.png') : (icons.device || 'icons/sw.png'));
+    }
+    if (d.status !== 0) {
+        if (isCore) return resolveIconUrl(icons.core_switch_bad || icons.core_switch || 'icons/core-bad.png');
+        return resolveIconUrl(icons.device_bad || icons.device || 'icons/sw-bad.png');
+    }
+    return resolveIconUrl(isCore ? (icons.core_switch || 'icons/core.png') : (icons.device || 'icons/sw.png'));
+}
+
+// 获取连线颜色：任一设备总体或端口超阈值即按阈值着色
+function getLinkColor(d, nodeMap) {
+    if (d.status !== 0) return '#ff4d4d';
+    const srcNode = nodeMap.get(d.from);
+    const tgtNode = nodeMap.get(d.to);
+    const srcUtil = srcNode ? calcUtil(srcNode.transmit||0, srcNode.receive||0,
+        (srcNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+    const tgtUtil = tgtNode ? calcUtil(tgtNode.transmit||0, tgtNode.receive||0,
+        (tgtNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+    const maxUtil = Math.max(srcUtil, tgtUtil);
+    if (maxUtil < 20) return '#006400';
+    if (maxUtil <= 70) return '#ffd166';
+    return '#ff9e44';
+}
+
+// 显示整体信息
+function showOverview(nodes) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    if (!sidebar || !sidebarTitle) {
+        console.warn('侧边栏元素未找到，跳过渲染');
+        return;
+    }
+    // 进入概览时清空侧栏上下文
+    window.sidebarContext = null;
+    sidebarTitle.textContent = '集群信息';
+    // 设备数采用全局统计（不受当前拓扑过滤影响）
+    const statsSource = (window.__ALL_NODES_RAW && Array.isArray(window.__ALL_NODES_RAW)) ? window.__ALL_NODES_RAW : nodes;
+    const deviceList = (statsSource || []).filter(d => {
+      const id = String(d && d.id || '');
+      // 排除组与专线虚拟设备
+      if (!id || id.startsWith('group:')) return false;
+      if (id === 'special-line-acc02') return false;
+      return true;
+    });
+    const total = deviceList.length;
+    const down = deviceList.filter(d => Number(d.status) !== 0).length;
+    let html = `<div class="overview-box">`;
+    html += `<p>总设备数: <span class="total-count">${total}</span></p>`;
+    html += `<p>故障设备数: <span class="down-count">${down}</span></p>`;
+    html += `<p>在线设备数: <span class="online-count">${total - down}</span></p>`;
+    html += `</div>`;
+
+    // 监控告警列表（含状态列）
+    const lmCfg = getLineMonitorConfig();
+    if (lmCfg.enabled) {
+      html += `<div class="alarm-box">`;
+      html += `<h3>监控告警</h3>`;
+      html += `<table class="port-table"><thead><tr><th>监控项</th><th>监控端口</th><th>监控设备</th><th>是否触发告警</th><th>状态</th></tr></thead><tbody id="alarm-list"></tbody></table>`;
+      html += `</div>`;
+    }
+
+    // 设备状态列表
+    html += `<div class="alarm-box">`;
+    html += `<h3>设备状态</h3>`;
+    html += `<table class="port-table"><thead><tr><th>告警设备</th><th>设备状态</th></tr></thead><tbody id="device-status-list"></tbody></table>`;
+    html += `</div>`;
+
+    sidebar.innerHTML = html;
+    renderAlarmList(nodes);
+}
+
+// 渲染告警列表（含状态列）
+async function renderAlarmList(nodes) {
+  const alarmList = document.getElementById('alarm-list');
+  if (!alarmList) return;
+  const lmCfg = getLineMonitorConfig();
+  if (!lmCfg.enabled) { alarmList.innerHTML = ''; return; }
+
+        await loadLocalPrometheusLines();
+    const sourceLines = filterLinesByConfig(localPromData.lines || []);
+    const results = sourceLines.map(l => {
+        const name = l.display_name || l.name || '未命名专线';
+         const s = l.status;
+         const triggered = (typeof s === 'string' ? s.toLowerCase() === 'down' : (Number(s) !== 0));
+         return {
+             name,
+             port: getLinePort(name),
+             device: SPECIAL_LINE_DEVICE,
+             type: '专线',
+             triggered
+         };
+    });
+
+    let html = '';
+    results.forEach(m => {
+        const status = m.triggered ? 'DOWN' : 'UP';
+        const statusClass = m.triggered ? 'port-down' : 'port-up';
+        html += `<tr class="${m.triggered ? 'alarm alarm-row' : ''}">`;
+        html += `<td>${m.name}</td>`;
+        html += `<td>${m.port}</td>`;
+        html += `<td>${formatName(m.device)}</td>`;
+        html += `<td>${m.triggered ? '是' : '否'}</td>`;
+        html += `<td class="${statusClass}">${status}</td>`;
+        html += `</tr>`;
+    });
+
+    alarmList.innerHTML = html;
+
+    // 同步专线组告警状态以驱动闪烁（当前仅 acc02 组）
+    try {
+        const anyDown = results.some(r => r.triggered);
+        specialLineDownMap['acc02'] = anyDown;
+        updateDownEffects();
+    } catch (e) {
+        console.warn('专线组告警状态同步失败:', e);
+    }
+
+    // 渲染设备状态列表
+    const deviceStatusList = document.getElementById('device-status-list');
+    if (!deviceStatusList) return;
+
+    const downDevices = nodes.filter(n => n.status !== 0);
+    let statusHtml = '';
+
+    if (downDevices.length > 0) {
+        downDevices.forEach(d => {
+            statusHtml += `<tr class="alarm alarm-row">`;
+            statusHtml += `<td>${d.label}</td>`;
+            statusHtml += `<td>DOWN</td>`;
+            statusHtml += `</tr>`;
+        });
+    } else {
+        statusHtml += `<tr><td>无告警</td><td>-</td></tr>`;
+    }
+
+    deviceStatusList.innerHTML = statusHtml;
+}
+
+// 显示设备详情
+function showDeviceInfo(d) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '设备信息';
+
+    const canGoBack = !!(window.sidebarContext && window.sidebarContext.type === 'group' && window.sidebarContext.groupNode);
+
+    const upPorts = d.ports ? d.ports.filter(p => p.status === 1 || (p.transmit > 0 || p.receive > 0)).length : 0;
+    const hasPercent = (typeof d.transmit_percent === 'number') || (typeof d.receive_percent === 'number');
+    const deviceUtil = hasPercent
+        ? Math.max(d.transmit_percent || 0, d.receive_percent || 0)
+        : calcUtil(d.transmit || 0, d.receive || 0, upPorts || 1);
+
+    let html = '';
+    if (canGoBack) {
+        html += `<div class="breadcrumb"><a href="#" id="back-to-group">← 返回组</a></div>`;
+    }
+    html += `<div class="device-info-box">`;
+    html += `<p><b>${d.id}</b></p>`;
+    html += `<p>设备IP: ${d.ip || 'N/A'}</p>`;
+    html += `<p>状态: <span class="${d.status === 0 ? 'status-up' : 'status-down'}">${d.status === 0 ? 'UP' : 'DOWN'}</span></p>`;
+    html += `<p>流量占用: ${deviceUtil.toFixed(2)}%</p>`;
+    html += `<p>发送流量: ${formatBytes(d.transmit || 0)}</p>`;
+    html += `<p>接收流量: ${formatBytes(d.receive || 0)}</p>`;
+    html += `</div>`;
+
+    if (d.ports && d.ports.length > 0) {
+        html += `<table class="port-table"><tr><th>端口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr>`;
+        d.ports.forEach(p => {
+            const portUp = p.status === 1 || (p.transmit > 0 || p.receive > 0);
+            const portUtil = Math.max(p.transmit_percent || 0, p.receive_percent || 0);
+            html += `<tr>
+                <td>${p.ifDescr || p.ifIndex}</td>
+                <td class="${portUp ? 'port-up' : 'port-down'}">${portUp ? 'UP' : 'DOWN'}</td>
+                <td>${p.speed_mbps || 0}</td>
+                <td>${formatBytes(p.transmit || 0)}</td>
+                <td>${formatBytes(p.receive || 0)}</td>
+                <td>${portUtil.toFixed(2)}%</td>
+            </tr>`;
+        });
+        html += `</table>`;
+    } else {
+        html += `<p>无端口信息</p>`;
+    }
+    // 前台编辑：设备显示开关（基于当前激活的拓扑配置）
+    if (window.__EDIT_MODE) {
+        try {
+            const vis = (((window.__TOPO_CFG || {}).visibility || {}).devices || {});
+            const curr = (vis[d.id] === undefined ? true : !!vis[d.id]);
+            html += `<div class="device-info-box">
+                <p><b>编辑模式</b></p>
+                <label style="display:inline-flex;align-items:center;gap:8px;">
+                  <input type="checkbox" id="dev-visible" ${curr? 'checked' : ''}/> 是否显示
+                </label>
+                <button id="save-dev-visible" style="margin-left:8px;" class="edit-btn">保存显示开关</button>
+            </div>`;
+        } catch (e) { /* ignore */ }
+    }
+    sidebar.innerHTML = html;
+    if (canGoBack) {
+        const back = document.getElementById('back-to-group');
+        if (back) {
+            back.addEventListener('click', (e) => {
+                e.preventDefault();
+                const ctx = window.sidebarContext;
+                if (ctx && ctx.groupNode) {
+                    showGroupInfo(ctx.groupNode);
+                }
+            });
+        }
+    }
+    // 绑定保存显示开关事件（编辑模式）
+    if (window.__EDIT_MODE) {
+        const btn = document.getElementById('save-dev-visible');
+        const cb = document.getElementById('dev-visible');
+        if (btn && cb) {
+            btn.addEventListener('click', async () => {
+                const flag = !!cb.checked;
+                try {
+                    await saveDeviceVisibility(d.id, flag);
+                    alert('已保存设备显示开关');
+                } catch (e) {
+                    alert('保存失败，请检查登录与后端服务');
+                }
+            });
+        }
+    }
+}
+
+// 显示链路详情
+function showLinkInfo(edgeData) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    // 链路详情不依赖组上下文，进入时清空
+    window.sidebarContext = null;
+    sidebarTitle.textContent = '链路信息';
+    // 组感知：使用辅助函数聚合端口对，并显示组或设备标签
+    const links = gatherRawLinksForEdge(edgeData);
+    const fromLabel = String(edgeData.from).startsWith('group:')
+        ? (networkData.nodes.get(edgeData.from)?.label || edgeData.from)
+        : (nodeMap.get(edgeData.from)?.label || nodeMap.get(edgeData.from)?.id || edgeData.from);
+    const toLabel = String(edgeData.to).startsWith('group:')
+        ? (networkData.nodes.get(edgeData.to)?.label || edgeData.to)
+        : (nodeMap.get(edgeData.to)?.label || nodeMap.get(edgeData.to)?.id || edgeData.to);
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>链路详情</b></p>`;
+    html += `<p>源端: ${fromLabel}</p>`;
+    html += `<p>目标端: ${toLabel}</p>`;
+    // 当前状态：考虑端口DOWN与覆盖
+    const undirectedKey = makeUndirectedKey(edgeData.from, edgeData.to);
+    const forced = (window.__LINK_OVERRIDES && window.__LINK_OVERRIDES.status) ? window.__LINK_OVERRIDES.status[undirectedKey] : null;
+    const isDown = edgeHasDownInterPort(edgeData, nodeMap);
+    const currStatusStr = forced ? (`覆盖: ${forced}`) : (isDown ? 'DOWN' : 'UP');
+    html += `<p>状态: <span class="${isDown ? 'status-down' : 'status-up'}">${currStatusStr}</span></p>`;
+    html += `</div>`;
+    if (links.length > 0) {
+        html += `<table class="port-table">
+            <thead>
+                <tr>
+                    <th>本端设备</th>
+                    <th>本端接口</th>
+                    <th>本端接口状态</th>
+                    <th>速率(Gbps)</th>
+                    <th>发送</th>
+                    <th>接收</th>
+                    <th>占用%</th>
+                    <th>对端设备</th>
+                    <th>对端接口</th>
+                    <th>对端接口状态</th>
+                    <th>速率(Gbps)</th>
+                    <th>发送</th>
+                    <th>接收</th>
+                    <th>占用%</th>
+                </tr>
+            </thead>
+            <tbody>`;
+        links.forEach(link => {
+            const srcNode = nodeMap.get(link.source);
+            const tgtNode = nodeMap.get(link.target);
+            const srcPort = findPortByName(srcNode, link.sourcePort);
+            const tgtPort = findPortByName(tgtNode, link.targetPort);
+            const srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
+            const tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+            const anyDown = !srcUp || !tgtUp;
+            html += `<tr class="${anyDown ? 'alarm alarm-row' : ''}">`;
+            html += `<td>${srcNode ? (srcNode.label || srcNode.id) : link.source}</td>`;
+            html += `<td>${link.sourcePort}</td>`;
+            html += `<td class="${srcUp ? 'port-up' : 'port-down'}">${srcUp ? 'UP' : 'DOWN'}</td>`;
+            html += `<td>${srcPort ? (srcPort.speed_mbps || 0) : '-'}</td>`;
+            html += `<td>${srcPort ? formatBytes(srcPort.transmit || 0) : '-'}</td>`;
+            html += `<td>${srcPort ? formatBytes(srcPort.receive || 0) : '-'}</td>`;
+            html += `<td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>`;
+            html += `<td>${tgtNode ? (tgtNode.label || tgtNode.id) : link.target}</td>`;
+            html += `<td>${link.targetPort}</td>`;
+            html += `<td class="${tgtUp ? 'port-up' : 'port-down'}">${tgtUp ? 'UP' : 'DOWN'}</td>`;
+            html += `<td>${tgtPort ? (tgtPort.speed_mbps || 0) : '-'}</td>`;
+            html += `<td>${tgtPort ? formatBytes(tgtPort.transmit || 0) : '-'}</td>`;
+            html += `<td>${tgtPort ? formatBytes(tgtPort.receive || 0) : '-'}</td>`;
+            html += `<td>${tgtPort ? Math.max(tgtPort.transmit_percent || 0, tgtPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+    } else {
+        html += `<p>无互联端口信息</p>`;
+    }
+    // 编辑模式控件：状态覆盖（UP/DOWN/不指定）并保存
+    if (window.__EDIT_MODE) {
+        const forcedVal = (window.__LINK_OVERRIDES && window.__LINK_OVERRIDES.status) ? (window.__LINK_OVERRIDES.status[undirectedKey] || '') : '';
+        html += `<div class="device-info-box">
+            <p><b>编辑模式</b></p>
+            <label>状态覆盖：</label>
+            <select id="link-status-override">
+                <option value="" ${forcedVal===''?'selected':''}>不指定</option>
+                <option value="UP" ${forcedVal==='UP'?'selected':''}>UP</option>
+                <option value="DOWN" ${forcedVal==='DOWN'?'selected':''}>DOWN</option>
+            </select>
+            <button id="save-link-override">保存</button>
+        </div>`;
+    }
+    sidebar.innerHTML = html;
+    if (window.__EDIT_MODE) {
+        const btn = document.getElementById('save-link-override');
+        const sel = document.getElementById('link-status-override');
+        if (btn && sel) {
+            btn.addEventListener('click', async () => {
+                try {
+                    const lo = window.__LINK_OVERRIDES || { version: 1, whitelist: [], blacklist: [], status: {} };
+                    lo.status = lo.status || {};
+                    const val = sel.value;
+                    if (!val) { delete lo.status[undirectedKey]; } else { lo.status[undirectedKey] = val; }
+                    const token = localStorage.getItem('token') || '';
+                    const res = await fetch('/api/config/link_overrides', {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': token ? ('Bearer ' + token) : '' },
+                        body: JSON.stringify(lo)
+                    });
+                    if (!res.ok) throw new Error('保存失败');
+                    window.__LINK_OVERRIDES = lo;
+                    if (typeof updateDownEffects === 'function') updateDownEffects();
+                    alert('已保存线路状态覆盖');
+                } catch (e) {
+                    alert('保存失败，请检查登录与后端服务');
+                }
+            });
+        }
+    }
+}
+
+// 显示专线详情
+async function showSpecialLineInfo(lineName) {
+    const lmCfg = getLineMonitorConfig();
+    if (!lmCfg.enabled) { 
+        const sidebar = document.getElementById('device-info');
+        const sidebarTitle = document.getElementById('sidebar-title');
+        sidebarTitle.textContent = '专线信息';
+        sidebar.innerHTML = `<div class="device-info-box"><p><b>${lineName}</b></p><p>未配置专线监控</p></div>`;
+        return;
+    }
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '专线信息';
+    await loadLocalPrometheusLines();
+    const lines = filterLinesByConfig(localPromData.lines || []).filter(l => (l.display_name === lineName) || (l.name === lineName));
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>${lineName}</b></p>`;
+    html += `</div>`;
+    if (lines.length > 0) {
+        html += `<table class="port-table">
+            <thead>
+                <tr>
+                    <th>专线名称</th>
+                    <th>端口</th>
+                    <th>设备</th>
+                    <th>端口状态</th>
+                    <th>告警状态</th>
+                </tr>
+            </thead>
+            <tbody>`;
+        lines.forEach(l => {
+            const name = l.display_name || l.name || lineName;
+            const s = l.status;
+            const statusStr = typeof s === 'string' ? s.toLowerCase() : s;
+            const triggered = (typeof statusStr === 'string') ? (statusStr === 'down') : (Number(s) !== 0);
+            const portStatus = triggered ? 'DOWN' : 'UP';
+            const statusClass = triggered ? 'port-down' : 'port-up';
+            html += `<tr class="${triggered ? 'alarm alarm-row' : ''}">`;
+            html += `<td>${name}</td>`;
+            html += `<td>${getLinePort(name)}</td>`;
+            html += `<td>${SPECIAL_LINE_DEVICE}</td>`;
+            html += `<td class="${statusClass}">${portStatus}</td>`;
+            html += `<td>${triggered ? '是' : '否'}</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+    } else {
+        html += `<p>无专线信息</p>`;
+    }
+    sidebar.innerHTML = html;
+}
+
+// 显示专线组详情
+async function showSpecialLineGroupInfo(deviceId) {
+    const lmCfg = getLineMonitorConfig();
+    if (!lmCfg.enabled) {
+        const sidebar = document.getElementById('device-info');
+        const sidebarTitle = document.getElementById('sidebar-title');
+        sidebarTitle.textContent = '专线信息';
+        sidebar.innerHTML = `<div class="device-info-box"><p><b>${deviceId}</b></p><p>未配置专线监控</p></div>`;
+        return;
+    }
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '专线信息';
+    await loadLocalPrometheusLines();
+    const lines = filterLinesByConfig(localPromData.lines || []);
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>${deviceId.includes('SW00B_ACC1') ? 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1 专线组' : 'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02 专线组'}</b></p>`;
+    html += `</div>`;
+    if (lines.length > 0) {
+        html += `<table class="port-table">
+            <thead>
+                <tr>
+                    <th>专线名称</th>
+                    <th>端口</th>
+                    <th>设备</th>
+                    <th>端口状态</th>
+                    <th>告警状态</th>
+                </tr>
+            </thead>
+            <tbody>`;
+        lines.forEach(l => {
+            const name = l.display_name || l.name || '-';
+            const s = l.status;
+            const statusStr = typeof s === 'string' ? s.toLowerCase() : s;
+            const triggered = (typeof statusStr === 'string') ? (statusStr === 'down') : (Number(s) !== 0);
+            const portStatus = triggered ? 'DOWN' : 'UP';
+            const statusClass = triggered ? 'port-down' : 'port-up';
+            html += `<tr class="${triggered ? 'alarm alarm-row' : ''}">`;
+            html += `<td>${name}</td>`;
+            html += `<td>${getLinePort(name)}</td>`;
+            html += `<td>${SPECIAL_LINE_DEVICE}</td>`;
+            html += `<td class="${statusClass}">${portStatus}</td>`;
+            html += `<td>${triggered ? '是' : '否'}</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+    } else {
+        html += `<p>无专线信息</p>`;
+    }
+    sidebar.innerHTML = html;
+}
+
+// 显示本机设备的专线端口与告警状态（根据设备ID内置IP与端口清单）
+async function showDeviceSpecialLines(deviceId) {
+    const lmCfg = getLineMonitorConfig();
+    if (!lmCfg.enabled) {
+        const sidebar = document.getElementById('device-info');
+        const sidebarTitle = document.getElementById('sidebar-title');
+        sidebarTitle.textContent = '专线信息';
+        sidebar.innerHTML = `<div class="device-info-box"><p><b>${deviceId}</b></p><p>未配置专线监控</p></div>`;
+        return;
+    }
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '专线信息';
+
+    await loadLocalPrometheusLines();
+    const results = filterLinesByConfig(localPromData.lines || []).map(l => {
+        const name = l.display_name || l.name || '-';
+        const s = l.status;
+        const triggered = (typeof s === 'string' ? s.toLowerCase() === 'down' : (Number(s) !== 0));
+        return { name, port: getLinePort(name), triggered };
+    });
+
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>${deviceId}</b></p>`;
+    html += `<p>设备IP：10.111.51.245</p>`;
+    html += `</div>`;
+
+    html += `<table class="port-table">
+        <thead>
+            <tr>
+                <th>专线名称</th>
+                <th>端口</th>
+                <th>端口状态</th>
+                <th>告警状态</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    let anyDown = false;
+    results.forEach(r => {
+        const portStatus = r.triggered ? 'DOWN' : 'UP';
+        const statusClass = r.triggered ? 'port-down' : 'port-up';
+        if (r.triggered) anyDown = true;
+        html += `<tr class="${r.triggered ? 'alarm alarm-row' : ''}">`;
+        html += `<td>${r.name}</td>`;
+        html += `<td>${r.port}</td>`;
+        html += `<td class="${statusClass}">${portStatus}</td>`;
+        html += `<td>${r.triggered ? '是' : '否'}</td>`;
+        html += `</tr>`;
+    });
+    html += `</tbody></table>`;
+    sidebar.innerHTML = html;
+
+    // 更新专线虚线颜色与设备节点状态（任一非UP则标记DOWN并变红）
+    try {
+    const lineGroup = deviceId.includes('25Gnei_ACC02') ? 'acc02' : null;
+        if (lineGroup && networkData && networkData.edges) {
+            const edgesMatch = networkData.edges.get({ filter: e => e.lineGroup === lineGroup });
+            if (edgesMatch && edgesMatch.length > 0) {
+                networkData.edges.update({
+                    id: edgesMatch[0].id,
+                    color: { color: anyDown ? '#ff4d4d' : '#00e5ff', highlight: '#ffffff' }
+                });
+            }
+        }
+        // 记录专线组告警状态，用于闪烁渲染；不修改设备状态
+        if (lineGroup) {
+            if (!specialLineDownMap) specialLineDownMap = {};
+            specialLineDownMap[lineGroup] = anyDown;
+            updateDownEffects();
+        }
+    } catch (e) {
+        console.warn('更新专线状态失败:', e);
+    }
+}
+
+// 显示组成员列表
+function showGroupInfo(groupNode) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    // 记录侧栏上下文以支持返回组
+    window.sidebarContext = { type: 'group', groupNode };
+    sidebarTitle.textContent = '交换机组信息';
+    const members = Array.isArray(groupNode.members) ? groupNode.members : [];
+    const sortedMembers = members.slice().sort((a, b) => {
+        const da = nodeMap.get(a.id);
+        const db = nodeMap.get(b.id);
+        const na = (da && da.label) || a.label || a.id;
+        const nb = (db && db.label) || b.label || b.id;
+        try { return na.localeCompare(nb, 'zh-Hans', { sensitivity: 'base' }); } catch (_) { return na < nb ? -1 : (na > nb ? 1 : 0); }
+    });
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>${groupNode.label || groupNode.id}</b></p>`;
+    html += `<p>组设备数量: <span class="port-up">${members.length}</span></p>`;
+    // 编辑模式下提供组可见性开关
+    try {
+        if (window.__EDIT_MODE) {
+            const gid = String(groupNode.id || '').startsWith('group:') ? String(groupNode.id).slice(6) : String(groupNode.id || '');
+            const vcfg = (window.__TOPO_CFG && window.__TOPO_CFG.visibility) || { devices: {}, groups: {} };
+            const currentVisible = (vcfg.groups && vcfg.groups.hasOwnProperty(gid)) ? !!vcfg.groups[gid] : true;
+            html += `<div class="editor-row" style="margin-top:8px;">
+                <label style="display:flex;align-items:center;gap:8px;">
+                    <span>是否显示</span>
+                    <input type="checkbox" id="group-visible-toggle" ${currentVisible ? 'checked' : ''} />
+                </label>
+                <button id="group-visible-save" style="margin-left:12px;">保存</button>
+            </div>`;
+        }
+    } catch (e) { /* ignore */ }
+    html += `</div>`;
+    if (members.length > 0) {
+        html += `<table class="port-table"><thead><tr><th>设备名称</th><th>状态</th></tr></thead><tbody>`;
+        sortedMembers.forEach(m => {
+            const d = nodeMap.get(m.id);
+            const statusUp = d ? (d.status === 0 && !hasDownInterPort(d)) : true;
+            const name = (d && d.label) || m.label || m.id;
+            html += `<tr class="${statusUp ? '' : 'alarm alarm-row'}"><td><a href="#" data-device-id="${m.id}">${name}</a></td><td class="${statusUp ? 'port-up' : 'port-down'}">${statusUp ? 'UP' : 'DOWN'}</td></tr>`;
+        });
+        html += `</tbody></table>`;
+    } else {
+        html += `<p>无匹配成员</p>`;
+    }
+    sidebar.innerHTML = html;
+
+    // 绑定点击设备名称事件：显示设备详情
+    const links = sidebar.querySelectorAll('a[data-device-id]');
+    links.forEach(a => {
+        a.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const id = a.getAttribute('data-device-id');
+            const d = nodeMap.get(id) || networkData.nodes.get(id);
+            if (d) showDeviceInfo(d);
+        });
+    });
+
+    // 绑定可见性保存事件（编辑模式）
+    try {
+        if (window.__EDIT_MODE) {
+            const gid = String(groupNode.id || '').startsWith('group:') ? String(groupNode.id).slice(6) : String(groupNode.id || '');
+            const toggleEl = document.getElementById('group-visible-toggle');
+            const saveBtn = document.getElementById('group-visible-save');
+            if (toggleEl && saveBtn) {
+                saveBtn.addEventListener('click', () => {
+                    const visible = !!toggleEl.checked;
+                    saveDeviceVisibility(`group:${gid}`, visible);
+                });
+            }
+        }
+    } catch (e) { /* ignore */ }
+}
+
+// 端口名归一化与索引（加速端口查找）
+function normalizePortName(s) {
+    return String(s || '')
+        .replace(/\s+/g, '')
+        .replace(/FourHundredGigabitEthernet/gi, 'FHGigabitEthernet')
+        .replace(/FourHundredGigE/gi, 'FHGigabitEthernet')
+        .toLowerCase();
+}
+window.__PORT_INDEX = new Map(); // deviceId -> Map(normalizedPortName -> port)
+function buildPortIndex(nodesArr) {
+    try {
+        const idx = new Map();
+        (nodesArr || []).forEach(n => {
+            const m = new Map();
+            (n.ports || []).forEach(p => {
+                const d1 = normalizePortName(p.ifDescr);
+                const d2 = normalizePortName(p.ifIndex);
+                if (d1) m.set(d1, p);
+                if (d2) m.set(d2, p);
+            });
+            idx.set(n.id, m);
+        });
+        window.__PORT_INDEX = idx;
+    } catch (e) {}
+}
+// 根据端口名称查找端口（优先使用索引）
+function findPortByName(node, portName) {
+    if (!node || !portName) return null;
+    const target = normalizePortName(portName);
+    const devIdx = window.__PORT_INDEX && window.__PORT_INDEX.get(node.id);
+    if (devIdx && devIdx.has(target)) return devIdx.get(target);
+    // 回退线性查找
+    const ports = node.ports || [];
+    for (let i = 0; i < ports.length; i++) {
+        const p = ports[i];
+        const d1 = normalizePortName(p.ifDescr);
+        const d2 = normalizePortName(p.ifIndex);
+        if (d1 === target || d2 === target) return p;
+    }
+    return null;
+}
+
+// 无向边键：将 A-B 与 B-A 合并到同一键，避免重复
+function makeUndirectedKey(a, b) {
+    return a < b ? `${a}-${b}` : `${b}-${a}`;
+}
+
+// ===== 组感知：端点展开与原始链路聚合 =====
+// 展开端点到设备ID列表：设备→自身；组→成员设备ID列表
+function expandEndpointToDevices(endpointId) {
+    try {
+        if (String(endpointId).startsWith('group:')) {
+            const gid = String(endpointId).slice(6);
+            const members = (groupMembersById && groupMembersById[gid]) ? groupMembersById[gid] : [];
+            return members.map(m => m.id);
+        }
+        return [endpointId];
+    } catch (e) { return [endpointId]; }
+}
+// 聚合某条边（可能为组端点）的所有原始端口互联记录
+function gatherRawLinksForEdge(edge) {
+    const fromIds = expandEndpointToDevices(edge.from);
+    const toIds = expandEndpointToDevices(edge.to);
+    const results = [];
+    const seen = new Set();
+    for (const a of fromIds) {
+        for (const b of toIds) {
+            if (a === b) continue; // 跳过自环
+            const key = makeUndirectedKey(a, b);
+            const arr = linkMap.get(key) || [];
+            for (const rec of arr) {
+                // 规整方向为 a→b
+                const oriented = (rec.source === a && rec.target === b)
+                    ? rec
+                    : { source: rec.target, sourcePort: rec.targetPort, target: rec.source, targetPort: rec.sourcePort };
+                const pidA = `${oriented.source}|${oriented.sourcePort}`;
+                const pidB = `${oriented.target}|${oriented.targetPort}`;
+                const undirectedPairId = pidA < pidB ? `${pidA}__${pidB}` : `${pidB}__${pidA}`;
+                if (seen.has(undirectedPairId)) continue;
+                seen.add(undirectedPairId);
+                results.push(oriented);
+            }
+        }
+    }
+    return results;
+}
+
+// 辅助：判断某条边是否存在互联端口DOWN（以 links.json 的端口对为准）
+function edgeHasDownInterPort(edge, nodeMap) {
+    // 覆盖状态优先
+    try {
+        const undirectedKey = makeUndirectedKey(edge.from, edge.to);
+        const overrides = (window.__LINK_OVERRIDES && window.__LINK_OVERRIDES.status) || null;
+        const forced = overrides ? overrides[undirectedKey] : null;
+        if (forced === 'DOWN') return true;
+        if (forced === 'UP') return false;
+    } catch (e) { /* ignore */ }
+    const rawLinks = gatherRawLinksForEdge(edge);
+    if (rawLinks.length === 0) {
+        const fromIds = expandEndpointToDevices(edge.from);
+        const toIds = expandEndpointToDevices(edge.to);
+        const anyFromDown = fromIds.some(id => { const n = nodeMap.get(id); return !!(n && n.status !== 0); });
+        const anyToDown = toIds.some(id => { const n = nodeMap.get(id); return !!(n && n.status !== 0); });
+        return anyFromDown || anyToDown;
+    }
+    for (const rec of rawLinks) {
+        const srcNode = nodeMap.get(rec.source);
+        const tgtNode = nodeMap.get(rec.target);
+        const srcPort = findPortByName(srcNode, rec.sourcePort);
+        const tgtPort = findPortByName(tgtNode, rec.targetPort);
+        const srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
+        const tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+        if (!srcUp || !tgtUp) return true;
+    }
+    return false;
+}
+
+async function loadLinkInfo() {
+    try {
+        const res = await fetch('links.json');
+        const data = await res.json();
+        if (!Array.isArray(data)) return;
+        linkMap.clear();
+        data.forEach(link => {
+            const key = makeUndirectedKey(link.source, link.target);
+            if (!linkMap.has(key)) linkMap.set(key, []);
+            // 仅存原始条目，点击时按 from/to 方向规整并在展示层去重
+            linkMap.get(key).push(link);
+        });
+    } catch (e) {
+        console.error('加载 links.json 失败:', e);
+    }
+}
+
+// 定义分组
+const groups = {
+    oob: {
+        name: '带外管理交换机',
+        // 交换 带外-交换1 与 带外-交换2 的位置（顺序决定X坐标）
+        ids: ['NXBHZY_102_-7-B-10-36U_PCOOB_ACC2', 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1', 'NXBHZY_103_1B-08_PCOOB_ACC3', 'NXBHZY_102_-7-B-09/10-42U_Public_AGG01'],
+        alias: {
+            'NXBHZY_102_-7-B-10-36U_PCOOB_ACC2': '带外-交换1',
+            'NXBHZY_103_1B-08_PCOOB_ACC3': '带外-交换2',
+            'NXBHZY_102_-7-B-09-36U_SW00B_ACC1': '带外-网络设备',
+            'NXBHZY_102_-7-B-09/10-42U_Public_AGG01': '公网汇聚交换机',
+        },
+        y: -260
+    },
+    core: {
+        name: '核心交换机',
+        ids: ['NXBHZY_102_7-B-05-46U_25Gnei_AGG01', 'NXBHZY_102_-7-B-07-46U_25Gnei_AGG02'],
+        alias: {
+            'NXBHZY_102_7-B-05-46U_25Gnei_AGG01': '核心交换1',
+            'NXBHZY_102_-7-B-07-46U_25Gnei_AGG02': '核心交换2'
+        },
+        y: -120
+    },
+    access: {
+        name: '接入交换机',
+        ids: ['NXBHZY_102_-7-B-09/10-42U_25Gnei_ACC01', 'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02', 'NXBHZY_103_1B-09/10-34U_25Gnei_ACC03'],
+        alias: {
+            'NXBHZY_102_-7-B-09/10-42U_25Gnei_ACC01': '接入1',
+            'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02': '接入2',
+            'NXBHZY_103_1B-09/10-34U_25Gnei_ACC03': '接入3'
+        },
+        y: 20
+    }
+};
+
+let network, networkData, nodeMap, nodes, edges;
+let specialLineDownMap = { acc02: false };
+let groupRulesCache = null; // 组规则缓存
+let groupMembersById = {};  // 每组成员列表
+
+// 检查互联端口是否DOWN
+function hasDownInterPort(node) {
+    if (!node || !node.ports) return false;
+    return node.ports.some(p => {
+        const portUp = p.status === 1 || (p.transmit > 0 || p.receive > 0);
+        return !portUp;
+    });
+}
+
+// 获取节点图标
+function getNodeIconWithInterPort(d) {
+    const cfg = window.__TOPO_CFG || DEFAULTS.topology;
+    const icons = (cfg && cfg.default_icons) || {};
+    const types = (cfg && cfg.types) || {};
+    const t = types[d.id] || null;
+    const isCore = d.id.includes('25Gnei_AGG01') || d.id.includes('25Gnei_AGG02');
+    // 优先类型逻辑
+    const bad = (d.status !== 0 || hasDownInterPort(d));
+    if (t === 'firewall') {
+        return resolveIconUrl(bad ? (icons.firewall_bad || icons.firewall || icons.device_bad || 'icons/firewall.png') : (icons.firewall || icons.device || 'icons/firewall.png'));
+    }
+    if (t === 'core_switch') {
+        return resolveIconUrl(bad ? (icons.core_switch_bad || icons.core_switch || icons.device_bad || 'icons/core-bad.png') : (icons.core_switch || icons.device || 'icons/core.png'));
+    }
+    if (t === 'switch_group') {
+        // 仅在组节点（id 以 group: 开头）时使用组图标；普通设备误配为 switch_group 时按交换机处理
+        if (String(d.id).startsWith('group:')) {
+            return resolveIconUrl(bad ? (icons.group_bad || icons.group || icons.device_bad || 'icons/sigle-sw-bad.png') : (icons.group || icons.device || 'icons/sigle-sw.png'));
+        }
+        // fallback 为交换机图标
+        return resolveIconUrl(bad ? (icons.device_bad || icons.device || 'icons/sw-bad.png') : (icons.device || 'icons/sw.png'));
+    }
+    if (t === 'switch') {
+        return resolveIconUrl(bad ? (icons.device_bad || icons.device || 'icons/sw-bad.png') : (icons.device || 'icons/sw.png'));
+    }
+    if (bad) {
+        if (isCore) return resolveIconUrl(icons.core_switch_bad || icons.core_switch || 'icons/core-bad.png');
+        return resolveIconUrl(icons.device_bad || icons.device || 'icons/sw-bad.png');
+    }
+    return resolveIconUrl(isCore ? (icons.core_switch || 'icons/core.png') : (icons.device || 'icons/sw.png'));
+}
+
+// 获取连线颜色
+function getLinkColorWithInterPort(d, nodeMap) {
+    const rawLinks = gatherRawLinksForEdge(d);
+    // 覆盖状态（编辑模式可设置）：link_overrides.status[undirectedKey] = 'UP'/'DOWN'/null
+    try {
+        const undirectedKey = makeUndirectedKey(d.from, d.to);
+        const overrides = (window.__LINK_OVERRIDES && window.__LINK_OVERRIDES.status) || null;
+        const forced = overrides ? overrides[undirectedKey] : null;
+        if (forced === 'DOWN') return '#ff4d4d';
+        if (forced === 'UP') {
+            // 强制UP时忽略端口状态，直接走利用率着色（深绿色）
+            const util = getEdgeMaxUtil(d, nodeMap);
+            return (util > 20) ? '#ffd166' : '#006400';
+        }
+    } catch (e) { /* ignore */ }
+    let down = false;
+    if (rawLinks.length === 0) {
+        // 无端口信息时：端点可能为组，按端点设备状态综合判断
+        const fromIds = expandEndpointToDevices(d.from);
+        const toIds = expandEndpointToDevices(d.to);
+        const anyFromDown = fromIds.some(id => { const n = nodeMap.get(id); return !!(n && n.status !== 0); });
+        const anyToDown = toIds.some(id => { const n = nodeMap.get(id); return !!(n && n.status !== 0); });
+        down = anyFromDown || anyToDown;
+    } else {
+        for (const rec of rawLinks) {
+            const srcNode = nodeMap.get(rec.source);
+            const tgtNode = nodeMap.get(rec.target);
+            const srcPort = findPortByName(srcNode, rec.sourcePort);
+            const tgtPort = findPortByName(tgtNode, rec.targetPort);
+            const srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
+            const tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+            if (!srcUp || !tgtUp) { down = true; break; }
+        }
+    }
+    if (down) return '#ff4d4d';
+    const util = getEdgeMaxUtil(d, nodeMap);
+    return (util > 20) ? '#ffd166' : '#006400';
+}
+
+// 计算边两端的最大利用率（组端点取成员最大值）
+function getEdgeMaxUtil(edge, nodeMap) {
+    function nodeUtil(n) {
+        if (!n) return 0;
+        const upPorts = (n.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1;
+        return calcUtil(n.transmit||0, n.receive||0, upPorts);
+    }
+    const fromIds = expandEndpointToDevices(edge.from);
+    const toIds = expandEndpointToDevices(edge.to);
+    const fUtil = Math.max(0, ...fromIds.map(id => nodeUtil(nodeMap.get(id))));
+    const tUtil = Math.max(0, ...toIds.map(id => nodeUtil(nodeMap.get(id))));
+    return Math.max(fUtil, tUtil);
+}
+
+// 加载拓扑数据并渲染
+// 记录初始视图（中心与缩放）
+let initialView = null;
+// 全局控制：设备名称与设备图标的垂直间距
+const USE_GLOBAL_LABEL_VADJUST = true;
+const LABEL_VADJUST = -6;
+
+// 绑定拓扑重置按钮
+(function bindResetButton() {
+    const btn = document.getElementById('reset-topo');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        if (!network) return;
+        if (initialView) {
+            network.moveTo({
+                position: initialView.position,
+                scale: initialView.scale,
+                animation: { duration: 600, easing: 'easeInOutQuad' }
+            });
+        } else {
+            network.fit({ animation: { duration: 600, easing: 'easeInOutQuad' } });
+        }
+    });
+})();
+
+async function loadTopology() {
+    try {
+        await loadLinkInfo();
+        // 加载连线覆盖配置（优先后端，可回退静态），并缓存到全局
+        try {
+            let res = await fetch('/api/config/link_overrides').catch(()=>null);
+            if (!(res && res.ok)) { res = await fetch('config/link_overrides.json').catch(()=>null); }
+            const lo = res && res.ok ? await res.json() : DEFAULTS.linkOverrides;
+            const status = (lo && typeof lo === 'object' && lo.status && typeof lo.status === 'object') ? lo.status : {};
+            window.__LINK_OVERRIDES = { version: (lo && lo.version) || 1, whitelist: (lo && lo.whitelist) || [], blacklist: (lo && lo.blacklist) || [], status };
+        } catch (e) {
+            window.__LINK_OVERRIDES = { version: 1, whitelist: [], blacklist: [], status: {} };
+        }
+        // 刷新最新图标/类型配置，保证拓扑图标随配置更新
+        try {
+            const cfgAll = await loadConfigs();
+            applyTopologyConfig(cfgAll.topology);
+        } catch (e) { /* 忽略配置刷新错误 */ }
+
+        // 读取组规则（用于隐藏成员并添加组图标）
+        async function loadGroupRules() {
+            if (groupRulesCache) return groupRulesCache;
+            // 优先读取后端 API；失败则回退到静态文件 /config/group_rules.json
+            try {
+                const r = await fetch('/api/config/group_rules');
+                if (r && r.ok) {
+                    const json = await r.json();
+                    groupRulesCache = json || { groups: [] };
+                    return groupRulesCache;
+                }
+            } catch (e) { /* ignore */ }
+            try {
+                const rs = await fetch('/config/group_rules.json');
+                if (rs && rs.ok) {
+                    const js = await rs.json();
+                    groupRulesCache = js || { groups: [] };
+                    return groupRulesCache;
+                }
+            } catch (e) { /* ignore */ }
+            groupRulesCache = { groups: [] };
+            return groupRulesCache;
+        }
+        function matches(group, id, name) {
+            try {
+                const inIds = (group.include_ids || []).includes(id);
+                const inRe = (group.include_regex || []).some(rx => new RegExp(rx).test(id) || new RegExp(rx).test(name || ''));
+                const exIds = (group.exclude_ids || []).includes(id);
+                const exRe = (group.exclude_regex || []).some(rx => new RegExp(rx).test(id) || new RegExp(rx).test(name || ''));
+                return (inIds || inRe) && !(exIds || exRe);
+            } catch (e) { return false; }
+        }
+
+        // 优先使用后端提供的 topology.json（包含设备详细数据）
+        let data;
+        try {
+            const topoRes = await fetch('topology.json');
+            data = await topoRes.json();
+        } catch (e) {
+            data = null;
+        }
+        // 若 topology.json 不可用，回退到 devices.json（仅节点，便于兜底展示）
+        if (!data || !data.nodes) {
+            try {
+                const devRes = await fetch('/devices.json');
+                const devData = await devRes.json();
+                if (Array.isArray(devData) && devData.length > 0) {
+                    await renderDevicesFallback(devData);
+                    return;
+                }
+            } catch (e) { /* 忽略，回退到固定布局 */ }
+        }
+        // 最后兜底：使用 topology-debug.json
+        if (!data || !data.nodes) {
+            try {
+                const res = await fetch('topology.json');
+                data = await res.json();
+            } catch (e) {
+                data = null;
+            }
+        }
+        if (!data || !data.nodes) {
+            console.error("Topology JSON 数据无效");
+            return;
+        }
+
+        nodes = (data.nodes || []).filter(d => d && d.id);
+        // 记录全局原始节点集合用于设备统计（不受当前视图过滤）
+        try {
+          window.__ALL_NODES_RAW = nodes.slice();
+        } catch (e) { /* ignore */ }
+        // 基于配置应用设备可见性初步过滤
+        try {
+            const devVis = (((window.__TOPO_CFG || {}).visibility || {}).devices) || {};
+            nodes = nodes.filter(d => devVis[d.id] !== false);
+        } catch (e) { /* ignore */ }
+        // 读取已保存的位置配置用于覆盖默认布局（按活动 profile 独立）
+        let savedPositions = {};
+        const activeProfile = getActiveProfileName(window.__TOPO_CFG || DEFAULTS.topology);
+        try {
+            let posRes = await fetch('/api/config/positions').catch(()=>null);
+            if (!(posRes && posRes.ok)) { posRes = await fetch('/config/positions.json').catch(()=>null); }
+            if (posRes && posRes.ok) {
+                const posJson = await posRes.json();
+                if (activeProfile === 'main') {
+                  savedPositions = (posJson && posJson.nodes) ? posJson.nodes : {};
+                } else {
+                  const profNodes = (posJson && posJson.profiles && posJson.profiles[activeProfile] && posJson.profiles[activeProfile].nodes) || null;
+                  savedPositions = profNodes || ((posJson && posJson.nodes) || {});
+                }
+            }
+        } catch (e) { savedPositions = {}; }
+        // 本地缓存回退：当服务不可用或静态文件缺失时使用 localStorage
+        if (!savedPositions || Object.keys(savedPositions).length === 0) {
+            try {
+                const ls = localStorage.getItem(`positions_local_cache_${activeProfile}`);
+                if (ls) {
+                    const parsed = JSON.parse(ls);
+                    const nodesMap = (parsed && parsed.nodes) || {};
+                    if (nodesMap && Object.keys(nodesMap).length > 0) savedPositions = nodesMap;
+                }
+            } catch (e) { /* ignore */ }
+        }
+        nodeMap = new Map(nodes.map(d => [d.id, d]));
+        // 计算组成员与需要隐藏的设备
+        const gr = await loadGroupRules();
+        let ruleGroups = (gr && gr.groups) ? gr.groups.slice() : [];
+        // 可选自动识别组：默认关闭，仅当 features.auto_groups.enabled=true 时启用
+        try {
+            const cfgAuto = window.__TOPO_CFG || DEFAULTS.topology || {};
+            const enableAutoGroups = !!(cfgAuto.features && cfgAuto.features.auto_groups && cfgAuto.features.auto_groups.enabled);
+            if (enableAutoGroups) {
+                const idPattern = /Group(\d+)_pod(\d+)-leaf\d+/;
+                const seenCombos = new Set();
+                (data.nodes || []).forEach(nd => {
+                    const m = idPattern.exec(String(nd.id || ''));
+                    if (m) {
+                        const combo = `Group${m[1]}_pod${m[2]}`;
+                        seenCombos.add(combo);
+                    }
+                });
+                const existingIds = new Set((ruleGroups || []).map(g => String(g.id || '')));
+                seenCombos.forEach(combo => {
+                    const gid = `Leaf-${combo}`;
+                    // 若已存在包含该组合的组则跳过
+                    if ([...existingIds].some(eid => eid.includes(combo))) return;
+                    ruleGroups.push({
+                        id: gid,
+                        name: gid,
+                        icon_url: '',
+                        include_ids: [],
+                        include_regex: [`.*${combo}-leaf\\d+$`],
+                        exclude_ids: [],
+                        exclude_regex: [],
+                        style_override: { forcedStatus: null, color: null, icon_url: null }
+                    });
+                });
+            }
+        } catch (e) { /* 忽略自动组规则补充错误 */ }
+        groupMembersById = {};
+        const hiddenIds = new Set();
+        nodes.forEach(d => {
+            const id = d.id;
+            const name = d.label || d.name || id;
+            const gMatched = ruleGroups.find(g => matches(g, id, name));
+            if (gMatched) {
+                const gid = gMatched.id;
+                // 组可见性：默认显示，显式为 false 则隐藏该组成员（且不加入组）
+                try {
+                    const groupsVis = (window.__TOPO_CFG && window.__TOPO_CFG.visibility && window.__TOPO_CFG.visibility.groups) || {};
+                    const groupVisible = (groupsVis[gid] === undefined ? true : !!groupsVis[gid]);
+                    if (!groupVisible) { hiddenIds.add(id); return; }
+                } catch (e) { /* ignore */ }
+                if (!groupMembersById[gid]) groupMembersById[gid] = [];
+                groupMembersById[gid].push({ id, label: name });
+                hiddenIds.add(id);
+            }
+        });
+        // 基于 links.json 自动连线（设备在组内则连到对应组图标）
+        // 构造设备→组的快速映射
+        const memberToGroupId = new Map();
+        Object.entries(groupMembersById || {}).forEach(([gid, arr]) => {
+            (arr || []).forEach(m => { memberToGroupId.set(m.id, 'group:' + gid); });
+        });
+        const agg = new Map(); // undirectedKey -> {from,to}
+        linkMap.forEach((arr, key) => {
+            (arr || []).forEach(rec => {
+                const efFrom = memberToGroupId.get(rec.source) || rec.source;
+                const efTo = memberToGroupId.get(rec.target) || rec.target;
+                if (efFrom === efTo) return; // 跳过自环
+                const k = makeUndirectedKey(efFrom, efTo);
+                if (!agg.has(k)) agg.set(k, { from: efFrom, to: efTo });
+            });
+        });
+        edges = Array.from(agg.values());
+
+        // 手动添加核心交换1与核心交换2之间的链路
+        const core1Id = 'NXBHZY_102_7-B-05-46U_25Gnei_AGG01';
+        const core2Id = 'NXBHZY_102_-7-B-07-46U_25Gnei_AGG02';
+        if (nodeMap.has(core1Id) && nodeMap.has(core2Id)) {
+            const core1 = nodeMap.get(core1Id);
+            const core2 = nodeMap.get(core2Id);
+            const maxTx = Math.max(core1.transmit || 0, core2.transmit || 0);
+            const maxRx = Math.max(core1.receive || 0, core2.receive || 0);
+            const util = calcUtil(maxTx, maxRx, 1);
+            edges.push({
+                from: core1Id,
+                to: core2Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: core1.status === 0 && core2.status === 0 ? 0 : 1,
+                transmit_percent: util,
+                receive_percent: util
+            });
+        }
+
+        // 每台接入交换机分别双上联到两台核心交换机
+        const accessIds = [
+            'NXBHZY_102_-7-B-09/10-42U_25Gnei_ACC01',
+            'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02',
+            'NXBHZY_103_1B-09/10-34U_25Gnei_ACC03'
+        ];
+
+        accessIds.forEach(accId => {
+            if (!nodeMap.has(accId)) return;
+            const accNode = nodeMap.get(accId);
+            [core1Id, core2Id].forEach(coreId => {
+                if (!nodeMap.has(coreId)) return;
+                    const coreNode = nodeMap.get(coreId);
+                    const maxTx = Math.max(accNode.transmit || 0, coreNode.transmit || 0);
+                    const maxRx = Math.max(accNode.receive || 0, coreNode.receive || 0);
+                    const util = calcUtil(maxTx, maxRx, 1);
+                    edges.push({
+                        from: accId,
+                        to: coreId,
+                        label: '',
+                        transmit: maxTx,
+                        receive: maxRx,
+                        status: accNode.status === 0 && coreNode.status === 0 ? 0 : 1,
+                        transmit_percent: util,
+                        receive_percent: util
+                    });
+            });
+        });
+
+        // === 新增：带外-网络设备分别与 带外-交换1、带外-交换2 互联 ===
+        const oob1Id = 'NXBHZY_102_-7-B-10-36U_PCOOB_ACC2'; // 带外-交换1
+        const oob2Id = 'NXBHZY_103_1B-08_PCOOB_ACC3';       // 带外-交换2
+        const oobDevId = 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1'; // 带外-网络设备
+
+        // 带外-网络设备 ↔ 带外-交换1
+        if (nodeMap.has(oobDevId) && nodeMap.has(oob1Id)) {
+            const dev = nodeMap.get(oobDevId);
+            const oob1 = nodeMap.get(oob1Id);
+            const maxTx = Math.max(dev.transmit || 0, oob1.transmit || 0);
+            const maxRx = Math.max(dev.receive || 0, oob1.receive || 0);
+            const util = calcUtil(maxTx, maxRx, 1);
+            edges.push({
+                from: oobDevId,
+                to: oob1Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: dev.status === 0 && oob1.status === 0 ? 0 : 1,
+                transmit_percent: util,
+                receive_percent: util
+            });
+        }
+
+        // 带外-网络设备 ↔ 带外-交换2
+        if (nodeMap.has(oobDevId) && nodeMap.has(oob2Id)) {
+            const dev = nodeMap.get(oobDevId);
+            const oob2 = nodeMap.get(oob2Id);
+            const maxTx = Math.max(dev.transmit || 0, oob2.transmit || 0);
+            const maxRx = Math.max(dev.receive || 0, oob2.receive || 0);
+            const util = calcUtil(maxTx, maxRx, 1);
+            edges.push({
+                from: oobDevId,
+                to: oob2Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: dev.status === 0 && oob2.status === 0 ? 0 : 1,
+                transmit_percent: util,
+                receive_percent: util
+            });
+        }
+
+        // 已移除：防火墙主节点与其固定连线的硬编码添加
+        // 已移除：防火墙备节点的硬编码添加
+
+
+        const visNodes = [];
+        const addedIds = new Set();
+        const plannedPos = {};
+
+        // 按分组布局节点
+        Object.entries(groups).forEach(([key, grp]) => {
+            const count = grp.ids.length;
+            const startX = -(count - 1) * 300 / 2;
+            grp.ids.forEach((id, idx) => {
+                const d = nodeMap.get(id);
+                if (!d || addedIds.has(d.id)) return;
+                // 二次设备可见性过滤：即使早期未过滤，也在此跳过
+                try {
+                    const devVis2 = (((window.__TOPO_CFG || {}).visibility || {}).devices) || {};
+                    if (devVis2[id] === false) return;
+                } catch (e) { /* ignore */ }
+                // 显示名称优先使用 topology_config.aliases，其次使用静态分组别名
+                const cfgAliases = ((window.__TOPO_CFG || DEFAULTS.topology || {}).aliases) || {};
+                const alias = cfgAliases[id] || grp.alias[id];
+                const posX = startX + idx * 300;
+                const posY = grp.y;
+                plannedPos[id] = { x: posX, y: posY };
+                if (hiddenIds.has(id)) return;
+                addedIds.add(d.id);
+                const saved = savedPositions[d.id] || null;
+                visNodes.push({
+                    id: d.id,
+                    label: alias ? alias : (d.label || d.id),
+                    shape: 'image',
+                    image: getNodeIconWithInterPort(d),
+                    size: 40,
+                    x: saved && typeof saved.x === 'number' ? saved.x : posX,
+                    y: saved && typeof saved.y === 'number' ? saved.y : posY,
+                    fixed: { x: false, y: false },
+                    status: d.status,
+                    ip: d.ip || '',
+                    transmit: d.transmit || 0,
+                    receive: d.receive || 0,
+                    transmit_percent: d.transmit_percent || 0,
+                    receive_percent: d.receive_percent || 0,
+                    ports: d.ports || [],
+                    font: {
+                        color: '#ffffff',
+                        size: 14,
+                        bold: true,
+                        strokeWidth: 3,
+                        strokeColor: '#0a1120',
+                        vadjust: LABEL_VADJUST
+                    }
+                });
+            });
+        });
+
+        // 自动摆放未分组节点：保持原样式的同时，确保 topology.json 中的设备可见且可点击
+        // 过滤已添加节点，同时排除防火墙主/备，避免重复ID
+        const otherNodes = nodes.filter(d => d && d.id && !addedIds.has(d.id) && !hiddenIds.has(d.id));
+        if (otherNodes.length > 0) {
+            const cols = 6; // 每行最多显示 6 个
+            const cellX = 220; // 水平间距
+            const startX = -(Math.min(cols, otherNodes.length) - 1) * cellX / 2;
+            const baseY = 220; // 放在接入层下方一行
+            otherNodes.forEach((d, idx) => {
+                const col = idx % cols;
+                const row = Math.floor(idx / cols);
+                const posX = startX + col * cellX;
+                const posY = baseY + row * 140;
+                plannedPos[d.id] = { x: posX, y: posY };
+                const saved = savedPositions[d.id] || null;
+                const cfgAliases = ((window.__TOPO_CFG || DEFAULTS.topology || {}).aliases) || {};
+                const alias = cfgAliases[d.id] || null;
+                visNodes.push({
+                    id: d.id,
+                    label: alias ? alias : (d.label || d.id),
+                    shape: 'image',
+                    image: getNodeIconWithInterPort(d),
+                    size: 36,
+                    x: saved && typeof saved.x === 'number' ? saved.x : posX,
+                    y: saved && typeof saved.y === 'number' ? saved.y : posY,
+                    fixed: { x: false, y: false },
+                    status: d.status,
+                    ip: d.ip || '',
+                    transmit: d.transmit || 0,
+                    receive: d.receive || 0,
+                    transmit_percent: d.transmit_percent || 0,
+                    receive_percent: d.receive_percent || 0,
+                    ports: d.ports || [],
+                    font: {
+                        color: '#ffffff',
+                        size: 14,
+                        bold: true,
+                        strokeWidth: 3,
+                        strokeColor: '#0a1120',
+                        vadjust: LABEL_VADJUST
+                    }
+                });
+            });
+        }
+
+        // 添加组图标节点：使用组规则，隐藏成员并在成员中心放置组节点
+        (ruleGroups || []).forEach((g, idx) => {
+            // 组可见性过滤：若组被配置为隐藏，则不渲染该组图标节点
+            try {
+                const gVis = (((window.__TOPO_CFG || {}).visibility || {}).groups) || {};
+                if (gVis[g.id] === false) return;
+            } catch (e) { /* ignore */ }
+            const members = groupMembersById[g.id] || [];
+            if (!members.length) return;
+            let sumX = 0, sumY = 0, cnt = 0;
+            members.forEach(m => {
+                const p = plannedPos[m.id];
+                if (p && typeof p.x === 'number' && typeof p.y === 'number') {
+                    sumX += p.x; sumY += p.y; cnt++;
+                }
+            });
+            const posX = cnt ? (sumX / cnt) : (-(ruleGroups.length - 1) * 240 / 2 + idx * 240);
+            const posY = cnt ? (sumY / cnt) : 0;
+            const cfg = window.__TOPO_CFG || DEFAULTS.topology || {};
+            const icons = (cfg.default_icons || {});
+            const anyDown = members.some(m => {
+                const md = nodeMap.get(m.id);
+                return md ? (md.status !== 0 || hasDownInterPort(md)) : false;
+            });
+            const iconCandidate = (g.style_override && g.style_override.icon_url) || g.icon_url || '';
+            const defaultIcon = anyDown ? (icons.group_bad || icons.group || icons.device_bad || 'icons/sigle-sw-bad.png') : (icons.group || icons.device || 'icons/sigle-sw.png');
+            const img = resolveIconUrl(iconCandidate || defaultIcon);
+            const savedGroup = savedPositions['group:' + g.id] || null;
+            visNodes.push({
+                id: 'group:' + g.id,
+                label: g.name || g.id,
+                shape: 'image',
+                image: img,
+                size: 44,
+                x: savedGroup && typeof savedGroup.x === 'number' ? savedGroup.x : posX,
+                y: savedGroup && typeof savedGroup.y === 'number' ? savedGroup.y : posY,
+                fixed: { x: false, y: false },
+                members: members,
+                font: { color: '#ffffff', size: 14, bold: true, strokeWidth: 3, strokeColor: '#0a1120', vadjust: LABEL_VADJUST }
+            });
+        });
+
+        // --- 渲染连线 ---
+        // 仅保留双方端点都在可见集合中的连线
+        const visibleSet = new Set(visNodes.map(n => n.id));
+        const edgesFiltered = edges.filter(d => visibleSet.has(d.from) && visibleSet.has(d.to));
+        const visEdges = edgesFiltered.map(d => ({
+            id: `${d.from}-${d.to}`,
+            from: d.from,
+            to: d.to,
+            width: 3,
+            color: {
+                color: getLinkColorWithInterPort(d, nodeMap),
+                highlight: '#ffffff'
+            },
+            smooth: false,
+            transmit: 0,
+            receive: 0,
+            status: 0
+        }));
+
+        // （已移除）专线虚线连接
+
+        // 已移除：防火墙主/备的固定布局调整
+
+        // --- 渲染拓扑 ---
+        const container = document.getElementById('topo-canvas');
+        networkData = {
+            nodes: new vis.DataSet(visNodes),
+            edges: new vis.DataSet(visEdges)
+        };
+
+        const topoCfg = window.__TOPO_CFG || DEFAULTS.topology || {};
+        const options = {
+            physics: { enabled: false },
+            layout: { improvedLayout: false },
+            interaction: { hover: true, selectConnectedEdges: false, dragNodes: true, dragView: false },
+            nodes: {
+                borderWidth: 0,
+                borderWidthSelected: 0,
+                chosen: false,
+                color: {
+                    border: 'rgba(0,0,0,0)',
+                    background: 'rgba(0,0,0,0)',
+                    highlight: { border: 'rgba(0,0,0,0)', background: 'rgba(0,0,0,0)' },
+                    hover: { border: 'rgba(0,0,0,0)', background: 'rgba(0,0,0,0)' }
+                }
+            },
+            edges: {
+                smooth: false,
+                chosen: { edge: false },
+                selectionWidth: 14,
+                hoverWidth: (topoCfg.edgeHover && topoCfg.edgeHover.enabled) ? (topoCfg.edgeHover.hoverWidth || 4) : 2
+            }
+        };
+
+        network = new vis.Network(container, networkData, options);
+        // 暴露到全局，便于调试或后续扩展使用
+        window.network = network;
+        window.networkData = networkData;
+        // 记录初始视图（用于一键重置）
+        initialView = {
+            position: network.getViewPosition(),
+            scale: network.getScale()
+        };
+        // 刷新后强制应用已保存位置（覆盖规划位置）
+        try {
+            let pr = await fetch('/api/config/positions').catch(()=>null);
+            if (!(pr && pr.ok)) { pr = await fetch('/config/positions.json').catch(()=>null); }
+            const pj = pr && pr.ok ? await pr.json() : null;
+            const activeName = getActiveProfileName(window.__TOPO_CFG || DEFAULTS.topology);
+            let map = {};
+            if (activeName === 'main') {
+              map = (pj && pj.nodes) || {};
+            } else {
+              const profNodes = (pj && pj.profiles && pj.profiles[activeName] && pj.profiles[activeName].nodes) || null;
+              map = profNodes || ((pj && pj.nodes) || {});
+            }
+            // 本地缓存回退
+            if (!map || Object.keys(map).length === 0) {
+                try {
+                    const ls = localStorage.getItem(`positions_local_cache_${activeName}`);
+                    if (ls) {
+                        const parsed = JSON.parse(ls);
+                        const nodesMap = (parsed && parsed.nodes) || {};
+                        if (nodesMap && Object.keys(nodesMap).length > 0) map = nodesMap;
+                    }
+                } catch (e) { /* ignore */ }
+            }
+            Object.keys(map).forEach(id => { const p = map[id]; if (p && typeof p.x === 'number' && typeof p.y === 'number') { try { network.moveNode(id, p.x, p.y); } catch(e){} } });
+        } catch (e) { /* ignore */ }
+
+        // 响应式处理：看全但不过度压缩；小屏缩放节点尺寸/字体并允许拖动画布
+        try {
+            const cfg = topoCfg.responsive || DEFAULTS.topology.responsive;
+            const rect = container.getBoundingClientRect();
+            const isSmall = rect && rect.width && (rect.width < (cfg.small_screen_threshold || 1280));
+            if (isSmall && cfg.enable_dragView_on_small) {
+                network.setOptions({ interaction: { dragView: true } });
+            }
+            if (isSmall) {
+                const nodeScale = cfg.node_scale_small || 0.85;
+                const fontScale = cfg.font_scale_small || 0.9;
+                const updates = [];
+                (networkData.nodes.get() || []).forEach(n => {
+                    const newSize = typeof n.size === 'number' ? Math.max(10, Math.round(n.size * nodeScale)) : undefined;
+                    const newFontSize = (n.font && typeof n.font.size === 'number') ? Math.max(10, Math.round(n.font.size * fontScale)) : undefined;
+                    if (newSize || newFontSize) {
+                        const upd = { id: n.id };
+                        if (newSize) upd.size = newSize;
+                        if (newFontSize) upd.font = Object.assign({}, n.font, { size: newFontSize });
+                        updates.push(upd);
+                    }
+                });
+                if (updates.length) networkData.nodes.update(updates);
+            }
+            if (cfg.auto_fit_on_load && cfg.mode === 'contain') {
+                // 先尝试看全
+                network.fit({ animation: { duration: 300, easing: 'easeInOutQuad' } });
+                const sc = network.getScale();
+                // 若过度缩小，则保留原布局视图
+                if (typeof sc === 'number' && sc < (cfg.min_scale || 0.6)) {
+                    network.moveTo({ position: initialView.position, scale: initialView.scale, animation: { duration: 200 } });
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        // LOD（按缩放比动态减负）
+        try {
+            const perf = (topoCfg.performance && topoCfg.performance.lod) || DEFAULTS.topology.performance.lod;
+            const state = (window.__LOD_STATE = { labelsHidden: false, membersHidden: false, hoverDisabled: false, edgesThinned: false, blinkDisabled: false });
+            const labelBackup = (window.__LABEL_BACKUP = new Map());
+            const hiddenMembers = (window.__HIDDEN_MEMBER_IDS = new Set());
+            window.__BLINK_ENABLED = true;
+
+            // 始终隐藏组成员：一旦归组，成员在任何缩放下都不单独显示
+            const ALWAYS_HIDE_GROUP_MEMBERS = true;
+            function applyLOD(scale) {
+                const hideLabelsTh = (typeof perf.hide_labels_below === 'number') ? perf.hide_labels_below : 0.7;
+                const hideMembersTh = (typeof perf.hide_group_members_below === 'number') ? perf.hide_group_members_below : 0.7;
+                const thinEdgesTh = (typeof perf.thin_edges_below === 'number') ? perf.thin_edges_below : 0.8;
+                const disableHoverTh = (typeof perf.disable_hover_below === 'number') ? perf.disable_hover_below : 0.75;
+                const disableBlinkTh = (typeof perf.disable_blink_below === 'number') ? perf.disable_blink_below : 0.65;
+
+                // 1) 标签隐藏/恢复（非组节点）
+                if (scale < hideLabelsTh && !state.labelsHidden) {
+                    const upd = [];
+                    (networkData.nodes.get() || []).forEach(n => {
+                        if (!String(n.id).startsWith('group:') && n.label) {
+                            labelBackup.set(n.id, n.label);
+                            upd.push({ id: n.id, label: '' });
+                        }
+                    });
+                    if (upd.length) networkData.nodes.update(upd);
+                    state.labelsHidden = true;
+                } else if (scale >= hideLabelsTh && state.labelsHidden) {
+                    const upd = [];
+                    labelBackup.forEach((label, id) => { upd.push({ id, label }); });
+                    if (upd.length) networkData.nodes.update(upd);
+                    labelBackup.clear();
+                    state.labelsHidden = false;
+                }
+
+                // 2) 隐藏/恢复组成员及其相关边
+                if ((ALWAYS_HIDE_GROUP_MEMBERS || scale < hideMembersTh) && !state.membersHidden) {
+                    const toHide = new Set();
+                    Object.entries(groupMembersById || {}).forEach(([gid, arr]) => {
+                        (arr || []).forEach(m => {
+                            // 仅对已存在于数据集的节点进行隐藏，避免无属性空节点被添加
+                            const exists = networkData.nodes.get(m.id);
+                            if (exists) { toHide.add(m.id); hiddenMembers.add(m.id); }
+                        });
+                    });
+                    const nodeUpd = [];
+                    toHide.forEach(id => nodeUpd.push({ id, hidden: true }));
+                    if (nodeUpd.length) networkData.nodes.update(nodeUpd);
+                    const edgeUpd = [];
+                    (networkData.edges.get() || []).forEach(e => {
+                        if (toHide.has(e.from) || toHide.has(e.to)) edgeUpd.push({ id: e.id || `${e.from}-${e.to}`, hidden: true });
+                    });
+                    if (edgeUpd.length) networkData.edges.update(edgeUpd);
+                    state.membersHidden = true;
+                } else if (!ALWAYS_HIDE_GROUP_MEMBERS && scale >= hideMembersTh && state.membersHidden) {
+                    // 仅在允许恢复时恢复此前隐藏的成员
+                    const nodeUpd = [];
+                    hiddenMembers.forEach(id => nodeUpd.push({ id, hidden: false }));
+                    if (nodeUpd.length) networkData.nodes.update(nodeUpd);
+                    const edgeUpd = [];
+                    (networkData.edges.get() || []).forEach(e => {
+                        if (hiddenMembers.has(e.from) || hiddenMembers.has(e.to)) edgeUpd.push({ id: e.id || `${e.from}-${e.to}`, hidden: false });
+                    });
+                    if (edgeUpd.length) networkData.edges.update(edgeUpd);
+                    hiddenMembers.clear();
+                    state.membersHidden = false;
+                }
+
+                // 3) 边变细/恢复
+                if (scale < thinEdgesTh && !state.edgesThinned) {
+                    const upd = (networkData.edges.get() || []).map(e => ({ id: e.id || `${e.from}-${e.to}`, width: 1 }));
+                    if (upd.length) networkData.edges.update(upd);
+                    state.edgesThinned = true;
+                } else if (scale >= thinEdgesTh && state.edgesThinned) {
+                    const upd = (networkData.edges.get() || []).map(e => ({ id: e.id || `${e.from}-${e.to}`, width: 3 }));
+                    if (upd.length) networkData.edges.update(upd);
+                    state.edgesThinned = false;
+                }
+
+                // 4) hover 关闭/恢复
+                if (scale < disableHoverTh && !state.hoverDisabled) {
+                    network.setOptions({ interaction: { hover: false } });
+                    state.hoverDisabled = true;
+                } else if (scale >= disableHoverTh && state.hoverDisabled) {
+                    network.setOptions({ interaction: { hover: true } });
+                    state.hoverDisabled = false;
+                }
+
+                // 5) 闪烁暂停/恢复
+                const wantDisableBlink = scale < disableBlinkTh;
+                window.__BLINK_ENABLED = !wantDisableBlink;
+                if (!window.__BLINK_ENABLED) {
+                    // 立刻恢复到非闪烁状态
+                    try {
+                        const updates = [];
+                        (networkData.nodes.get() || []).forEach(n => {
+                            if (!String(n.id).startsWith('group:')) updates.push({ id: n.id, opacity: 1 });
+                        });
+                        if (updates.length) networkData.nodes.update(updates);
+                        updateDownEffects();
+                    } catch (e) { /* ignore */ }
+                } else {
+                    // 切回闪烁时立即应用一次更新
+                    try { updateDownEffects(); } catch (e) { /* ignore */ }
+                }
+                state.blinkDisabled = wantDisableBlink;
+            }
+
+            let zoomTimer;
+            network.on('zoom', function(params) {
+                clearTimeout(zoomTimer);
+                zoomTimer = setTimeout(() => applyLOD(params.scale), 120);
+            });
+            // 初始应用一次
+            applyLOD(network.getScale());
+        } catch (e) { /* ignore */ }
+
+        // edgeHasDownInterPort 已提升为全局函数，供多处调用
+
+        // 处理设备DOWN状态和连线闪烁效果（颜色浅深与透明度交替）
+        function updateDownEffects() {
+            if (!nodes || !networkData) return;
+            // 更新连线闪烁效果：只要该边的任一互联端口为DOWN，则红色闪烁
+            visEdges.forEach(edge => {
+                const isSpecialGroupDown = edge.lineGroup && specialLineDownMap && specialLineDownMap[edge.lineGroup];
+                const down = isSpecialGroupDown ? true : edgeHasDownInterPort(edge, nodeMap);
+                if (down) {
+                    edge.color = { color: blink ? '#ff0000' : '#ff6666', highlight: '#ffffff' };
+                } else {
+                    // 恢复正常颜色（含防火墙特殊逻辑与利用率着色）
+                    const normalColor = edge.lineGroup ? '#00e5ff' : getLinkColorWithInterPort(edge, nodeMap);
+                    edge.color = { color: normalColor, highlight: '#ffffff' };
+                }
+            });
+            networkData.edges.update(visEdges);
+        }
+
+        // 暴露更新函数用于外部触发
+        window.updateDownEffects = updateDownEffects;
+
+        // 初始化与优化闪烁更新：仅对状态为 DOWN 的节点与变化的边更新
+        let blink = true;
+        let prevDownEdgeIds = new Set();
+        let downNodeIds = new Set();
+        function recomputeDownNodeIds() {
+            try {
+                downNodeIds = new Set((nodes || []).filter(n => (n.status !== 0) || hasDownInterPort(n)).map(n => n.id));
+            } catch (e) {}
+        }
+        // 首次计算
+        recomputeDownNodeIds();
+        // 边闪烁仅更新发生状态变化的边
+        function updateDownEffects() {
+            if (!nodes || !networkData) return;
+            const updates = [];
+            const newDown = new Set();
+            visEdges.forEach(edge => {
+                const isSpecialGroupDown = edge.lineGroup && specialLineDownMap && specialLineDownMap[edge.lineGroup];
+                const down = isSpecialGroupDown ? true : edgeHasDownInterPort(edge, nodeMap);
+                if (down) newDown.add(edge.id || `${edge.from}-${edge.to}`);
+                const edgeId = edge.id || `${edge.from}-${edge.to}`;
+                const wasDown = prevDownEdgeIds.has(edgeId);
+                if (down !== wasDown) {
+                    const color = down ? (blink ? '#ff0000' : '#ff6666') : (edge.lineGroup ? '#00e5ff' : getLinkColorWithInterPort(edge, nodeMap));
+                    updates.push({ id: edgeId, color: { color, highlight: '#ffffff' } });
+                }
+            });
+            if (updates.length) networkData.edges.update(updates);
+            prevDownEdgeIds = newDown;
+        }
+    // 边闪烁定时器（降频到 900ms）
+    updateDownEffects();
+    setInterval(() => { if (window.__BLINK_ENABLED !== false) { blink = !blink; updateDownEffects(); } }, 900);
+        // 节点透明度闪烁（仅对 downNodeIds；降频到 1500ms）
+    setInterval(() => {
+        try {
+            if (window.__BLINK_ENABLED !== false) {
+                const updates = [];
+                downNodeIds.forEach(id => {
+                    const node = networkData.nodes.get(id);
+                    if (node) updates.push({ id, opacity: blink ? 1 : 0.4 });
+                });
+                if (updates.length) networkData.nodes.update(updates);
+            }
+                // 组图标闪烁与变红（按成员状态与互联端口DOWN）：更新有限数量的组节点
+                const allIds = networkData.nodes.getIds();
+                const groupsToCheck = allIds.filter(id => String(id).startsWith('group:'));
+                const cfg = window.__TOPO_CFG || DEFAULTS.topology || {};
+                const icons = (cfg.default_icons || {});
+                const groupUpdates = [];
+                groupsToCheck.forEach(gidFull => {
+                    const gid = String(gidFull).slice(6);
+                    const members = (groupMembersById && groupMembersById[gid]) ? groupMembersById[gid] : [];
+                    const anyDown = members.some(m => {
+                        const md = nodeMap.get(m.id);
+                        if (!md) return false;
+                        const portDown = hasDownInterPort(md);
+                        return (md.status !== 0) || portDown;
+                    }) || visEdges.some(e => (e.from === gidFull || e.to === gidFull) && edgeHasDownInterPort(e, nodeMap));
+                    const img = anyDown ? (icons.group_bad || icons.group || icons.device_bad || 'icons/sigle-sw-bad.png') : (icons.group || icons.device || 'icons/sigle-sw.png');
+                    groupUpdates.push({ id: gidFull, image: resolveIconUrl(img), opacity: anyDown ? (blink ? 1 : 0.5) : 1 });
+                });
+                if (groupUpdates.length) networkData.nodes.update(groupUpdates);
+            } catch (e) { /* ignore */ }
+        }, 1500);
+
+        // 统一点击优先级：空白→概览；编辑模式优先弹窗；否则组→成员列表，节点→设备信息与端口，专线→专线信息，普通链路→链路信息
+        network.on('click', function(params) {
+            const hasNode = params.nodes && params.nodes.length > 0;
+            const hasEdge = params.edges && params.edges.length > 0;
+
+            // 前台编辑模式：优先打开编辑弹窗（组/设备均可编辑）
+            if (window.__EDIT_MODE && hasNode) {
+                const nodeId = params.nodes[0];
+                if (typeof window.openFrontEditor === 'function') {
+                    window.openFrontEditor(nodeId);
+                    return;
+                }
+            }
+
+            // 空白区域：显示集群整体信息
+            if (!hasNode && !hasEdge) {
+                showOverview(nodes);
+                return;
+            }
+
+            // 节点优先：显示设备整体信息与端口信息；若为组图标则显示成员
+            if (hasNode) {
+                const nodeId = params.nodes[0];
+                if (String(nodeId).startsWith('group:')) {
+                    const n = networkData.nodes.get(nodeId);
+                    if (n) { showGroupInfo(n); return; }
+                }
+                // 专线设备为虚拟节点，点击时展示专线信息
+                if (nodeId === 'special-line-acc02') {
+                    showDeviceSpecialLines('NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02');
+                    return;
+                }
+                // 优先使用原始节点数据（来自 topology.json）
+                const rawNode = nodeMap ? nodeMap.get(nodeId) : null;
+                if (rawNode) {
+                    showDeviceInfo(rawNode);
+                } else {
+                    // 兜底使用可视节点数据
+                    const visNode = networkData.nodes.get(nodeId);
+                    if (visNode) {
+                        showDeviceInfo(visNode);
+                    } else {
+                        showOverview(nodes);
+                    }
+                }
+                return;
+            }
+
+            // 专线（低于设备图标优先级）：带有 dashes/lineGroup 的边显示专线信息
+            if (hasEdge) {
+                const edge = networkData.edges.get(params.edges[0]);
+                if (edge && (edge.dashes || edge.lineGroup)) {
+                    const lmCfg = getLineMonitorConfig();
+                    if (edge.lineGroup === 'acc02' && lmCfg.enabled) {
+                        showDeviceSpecialLines('NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02');
+                    } else if (edge) {
+                        // 非接入2的虚线已移除；其余按普通链路处理
+                        showLinkInfo(edge);
+                    }
+                } else if (edge) {
+                    // 普通链路（优先级最低）：显示链路信息
+                    showLinkInfo(edge);
+                } else {
+                    showOverview(nodes);
+                }
+            }
+        });
+        showOverview(nodes);
+
+        // 悬停边突出效果：按状态设置颜色；DOWN 时加粗红色，UP/正常用亮绿
+        try {
+            const cfgEH = (window.__TOPO_CFG && window.__TOPO_CFG.edgeHover) || DEFAULTS.topology.edgeHover;
+            if (cfgEH && cfgEH.enabled) {
+                const prevStyles = new Map(); // { id: { color, width } }
+                network.on('hoverEdge', function(params) {
+                    const id = params.edge;
+                    const e = networkData.edges.get(id);
+                    if (!e) return;
+                    if (!prevStyles.has(id)) prevStyles.set(id, { color: e.color, width: e.width });
+                    const isSpecialGroupDown = e.lineGroup && specialLineDownMap && specialLineDownMap[e.lineGroup];
+                    const isDown = isSpecialGroupDown ? true : edgeHasDownInterPort(e, nodeMap);
+                    if (isDown) {
+                        const red = { color: '#ff0000', highlight: '#ffffff' };
+                        const boldWidth = ((topoCfg.edgeHover && topoCfg.edgeHover.hoverWidth) ? topoCfg.edgeHover.hoverWidth : 4) + 2;
+                        networkData.edges.update({ id, color: red, width: boldWidth });
+                    } else {
+                        const newColor = { color: cfgEH.hoverColor || '#00ff9d', highlight: '#ffffff' };
+                        networkData.edges.update({ id, color: newColor });
+                    }
+                });
+                network.on('blurEdge', function(params) {
+                    const id = params.edge;
+                    const prev = prevStyles.get(id);
+                    if (prev) {
+                        networkData.edges.update({ id, color: prev.color, width: prev.width });
+                        prevStyles.delete(id);
+                    } else {
+                        const e = networkData.edges.get(id);
+                        if (e) {
+                            const raw = { from: e.from, to: e.to, status: e.status, transmit: e.transmit, receive: e.receive };
+                            const color = getLinkColorWithInterPort(raw, nodeMap);
+                            networkData.edges.update({ id, color: { color, highlight: '#ffffff' } });
+                        }
+                    }
+                });
+            }
+        } catch (e) { /* ignore */ }
+
+        console.log('拓扑加载完成：节点', visNodes.length, '边', visEdges.length);
+    } catch (e) {
+        console.error('加载拓扑失败:', e);
+    }
+}
+
+// 简化版渲染：当存在 devices.json 时，直接将设备以可拖拽节点展示，不加载固定内容
+async function renderDevicesFallback(devices) {
+    // 确保加载 links.json，以便边点击时能显示链路详情
+    try { await loadLinkInfo(); } catch (e) {}
+    let posRes = await fetch('/api/config/positions').catch(()=>null);
+    if (!(posRes && posRes.ok)) { posRes = await fetch('/config/positions.json').catch(()=>null); }
+    const pos = posRes && posRes.ok ? await posRes.json() : {};
+    const cfg = window.__TOPO_CFG || DEFAULTS.topology || {};
+    // 按类型驱动图标：未配置类型默认“交换机”，使用 device / device_bad
+
+    nodes = [];
+    const list = Array.isArray(devices) ? devices : [];
+    const activeName = getActiveProfileName(cfg);
+    const positions = activeName === 'main'
+      ? ((pos && pos.nodes) || {})
+      : (((pos && pos.profiles && pos.profiles[activeName] && pos.profiles[activeName].nodes) || null) || ((pos && pos.nodes) || {}));
+    list.forEach(d => {
+        const id = d.id || d.device_id || d.name || String(d);
+        const label = (cfg.aliases && cfg.aliases[id]) || d.name || id;
+        const p = positions[id] || {};
+        const status = (typeof d.status === 'number' ? d.status : 0);
+        const img = getNodeIcon({ id, status });
+        const node = {
+            id,
+            label,
+            shape: 'image',
+            image: img || resolveIconUrl((DEFAULTS.topology && DEFAULTS.topology.default_icons && DEFAULTS.topology.default_icons.device) || 'icons/sw.png'),
+            size: 18,
+            x: p.x,
+            y: p.y,
+            physics: false,
+            fixed: { x: false, y: false },
+            font: { size: 14 },
+            // 设备信息字段（用于侧边栏展示）
+            status,
+            ip: d.ip || '',
+            transmit: d.transmit || 0,
+            receive: d.receive || 0,
+            transmit_percent: d.transmit_percent || 0,
+            receive_percent: d.receive_percent || 0,
+            ports: Array.isArray(d.ports) ? d.ports : []
+        };
+        nodes.push(node);
+    });
+
+    const container = document.getElementById('topo-canvas');
+    const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet([]) };
+    const topoCfg = window.__TOPO_CFG || DEFAULTS.topology || {};
+    const options = {
+        physics: { enabled: false },
+        layout: { improvedLayout: false },
+        interaction: { hover: true, dragNodes: true, dragView: false },
+        nodes: {
+            chosen: false,
+            borderWidth: 0,
+            borderWidthSelected: 0,
+            color: {
+                border: 'rgba(0,0,0,0)',
+                background: 'rgba(0,0,0,0)',
+                highlight: { border: 'rgba(0,0,0,0)', background: 'rgba(0,0,0,0)' },
+                hover: { border: 'rgba(0,0,0,0)', background: 'rgba(0,0,0,0)' }
+            }
+        },
+        edges: { selectionWidth: 14, hoverWidth: (topoCfg.edgeHover && topoCfg.edgeHover.enabled) ? (topoCfg.edgeHover.hoverWidth || 4) : 2 }
+    };
+    network = new vis.Network(container, data, options);
+    window.network = network;
+    initialView = { position: network.getViewPosition(), scale: network.getScale() };
+
+    // 建立 nodeMap 与 networkData 以复用现有点击显示逻辑
+    nodeMap = new Map(nodes.map(d => [d.id, d]));
+    networkData = data;
+    // 重建端口索引与故障节点集合
+    try { buildPortIndex(nodes); } catch (e) {}
+    if (typeof recomputeDownNodeIds === 'function') {
+        try { recomputeDownNodeIds(); } catch (e) {}
+    }
+
+    // 点击事件：空白→概览；节点→设备/组信息；边→链路信息
+    network.on('click', function(params) {
+        const hasNode = params.nodes && params.nodes.length > 0;
+        const hasEdge = params.edges && params.edges.length > 0;
+
+        // 编辑模式优先节点弹窗
+        if (window.__EDIT_MODE && hasNode) {
+            const nodeId = params.nodes[0];
+            if (typeof window.openFrontEditor === 'function') {
+                window.openFrontEditor(nodeId);
+                return;
+            }
+        }
+
+        // 空白区域
+        if (!hasNode && !hasEdge) {
+            showOverview(nodes);
+            return;
+        }
+
+        // 节点点击
+        if (hasNode) {
+            const nodeId = params.nodes[0];
+            if (String(nodeId).startsWith('group:')) {
+                const n = networkData.nodes.get(nodeId);
+                if (n) { showGroupInfo(n); return; }
+            }
+            const node = networkData.nodes.get(nodeId);
+            if (node) {
+                showDeviceInfo(node);
+            } else {
+                showOverview(nodes);
+            }
+            return;
+        }
+
+        // 边点击（专线优先，其余按普通链路）
+        if (hasEdge) {
+            const edge = networkData.edges.get(params.edges[0]);
+            if (edge && (edge.dashes || edge.lineGroup)) {
+                try {
+                    const lmCfg = (typeof getLineMonitorConfig === 'function') ? getLineMonitorConfig() : { enabled: false };
+                    if (edge.lineGroup === 'acc02' && lmCfg.enabled) {
+                        showDeviceSpecialLines('NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02');
+                        return;
+                    }
+                } catch (e) {}
+                if (edge) { showLinkInfo(edge); return; }
+            }
+            if (edge) {
+                showLinkInfo(edge);
+                return;
+            }
+            showOverview(nodes);
+        }
+    });
+
+    // 初始显示概览
+    showOverview(nodes);
+
+    // 小屏响应式：允许拖动画布；节点与字体缩放
+    try {
+        const cfg = topoCfg.responsive || DEFAULTS.topology.responsive;
+        const rect = container.getBoundingClientRect();
+        const isSmall = rect && rect.width && (rect.width < (cfg.small_screen_threshold || 1280));
+        if (isSmall && cfg.enable_dragView_on_small) {
+            network.setOptions({ interaction: { dragView: true } });
+        }
+        if (isSmall) {
+            const nodeScale = cfg.node_scale_small || 0.85;
+            const fontScale = cfg.font_scale_small || 0.9;
+            const updates = [];
+            (networkData.nodes.get() || []).forEach(n => {
+                const newSize = typeof n.size === 'number' ? Math.max(10, Math.round(n.size * nodeScale)) : undefined;
+                const newFontSize = (n.font && typeof n.font.size === 'number') ? Math.max(10, Math.round(n.font.size * fontScale)) : undefined;
+                if (newSize || newFontSize) {
+                    const upd = { id: n.id };
+                    if (newSize) upd.size = newSize;
+                    if (newFontSize) upd.font = Object.assign({}, n.font, { size: newFontSize });
+                    updates.push(upd);
+                }
+            });
+            if (updates.length) networkData.nodes.update(updates);
+        }
+    } catch (e) { /* ignore */ }
+}
+
+// 定时任务：监控数据与拓扑数据每6分钟更新
+setInterval(async () => {
+    // 刷新告警列表
+    if (nodes) await renderAlarmList(nodes);
+}, 6 * 60 * 1000);
+
+setInterval(() => {
+    // 仅在出现故障节点时重建拓扑，否则只更新数据
+    try {
+        const hasFault = (nodes || []).some(n => (n.status !== 0) || hasDownInterPort(n));
+        if (hasFault) {
+            loadTopology();
+        }
+    } catch (e) { /* ignore */ }
+}, 6 * 60 * 1000);
+
+// 专线状态轮询（每5秒，按配置启用）：读取 prometheus.json，更新专线组闪烁与告警列表
+setInterval(async () => {
+    try {
+        const lmCfg = getLineMonitorConfig();
+        if (!lmCfg.enabled) return;
+        await loadLocalPrometheusLines();
+        const anyDown = filterLinesByConfig(localPromData.lines || []).some(l => {
+            const s = l.status;
+            const statusStr = typeof s === 'string' ? s.toLowerCase() : s;
+            return statusStr === 'down' || statusStr === 1 || statusStr === '1';
+        });
+        specialLineDownMap['acc02'] = anyDown;
+        if (window.updateDownEffects) {
+            window.updateDownEffects();
+        }
+        // 若概览界面可见，刷新监控告警表
+        const alarmList = document.getElementById('alarm-list');
+        if (alarmList && nodes) {
+            await renderAlarmList(nodes);
+        }
+    } catch (e) {
+        console.warn('专线状态轮询失败:', e);
+    }
+}, 5000);
+
+        // 每6分钟重新读取并更新数据
+        setInterval(async () => {
+            try {
+                // 重新加载链路信息
+                await loadLinkInfo();
+
+                // 重新加载拓扑数据（后端数据为准）
+                const res = await fetch('topology.json');
+                const data = await res.json();
+                if (!data || !data.nodes) {
+                    console.error("Topology JSON 数据无效");
+                    return;
+                }
+
+        // 更新节点数据
+        const newNodes = (data.nodes || []).filter(d => d && d.id);
+        const newNodeMap = new Map(newNodes.map(d => [d.id, d]));
+
+        // 更新节点状态
+        if (networkData && networkData.nodes) {
+            newNodes.forEach(node => {
+                const existingNode = networkData.nodes.get(node.id);
+                if (existingNode) {
+                    // 更新节点属性
+                    networkData.nodes.update({
+                        id: node.id,
+                        status: node.status,
+                        ip: node.ip || '',
+                        transmit: node.transmit || 0,
+                        receive: node.receive || 0,
+                        transmit_percent: node.transmit_percent || 0,
+                        receive_percent: node.receive_percent || 0,
+                        ports: node.ports || [],
+                        image: getNodeIconWithInterPort(node), // 使用新图标逻辑
+                        font: {
+                            color: (node.status === 0 && !hasDownInterPort(node)) ? '#ffffff' : '#ff4d4d',
+                            size: 14,
+                            bold: true,
+                            vadjust: LABEL_VADJUST
+                        }
+                    });
+                }
+            });
+        }
+
+        // 更新边数据
+        const newEdges = (data.edges || []).filter(d => d && d.source && d.target)
+            .map(d => {
+                const srcId = d.source.split(':')[0];
+                const tgtId = d.target.split(':')[0];
+                if (!newNodeMap.has(srcId) || !newNodeMap.has(tgtId)) return null;
+                const sourceNode = newNodeMap.get(srcId);
+                const targetNode = newNodeMap.get(tgtId);
+                return {
+                    from: srcId,
+                    to: tgtId,
+                    label: d.label,
+                    transmit: d.transmit || 0,
+                    receive: d.receive || 0,
+                    status: sourceNode.status === 0 && targetNode.status === 0 ? 0 : 1,
+                    transmit_percent: d.transmit_percent || 0,
+                    receive_percent: d.receive_percent || 0
+                };
+            }).filter(d => d != null);
+
+        // 追加：带外衍生链路（与初始构建逻辑保持一致：网络设备连到交换1和交换2）
+        const oob1Id = 'NXBHZY_102_-7-B-10-36U_PCOOB_ACC2';
+        const oob2Id = 'NXBHZY_103_1B-08_PCOOB_ACC3';
+        const oobDevId = 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1';
+
+        if (newNodeMap.has(oobDevId) && newNodeMap.has(oob1Id)) {
+            const dev = newNodeMap.get(oobDevId);
+            const oob1 = newNodeMap.get(oob1Id);
+            const maxTx = Math.max(dev.transmit || 0, oob1.transmit || 0);
+            const maxRx = Math.max(dev.receive || 0, oob1.receive || 0);
+            newEdges.push({
+                from: oobDevId,
+                to: oob1Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: dev.status === 0 && oob1.status === 0 ? 0 : 1,
+                transmit_percent: 0,
+                receive_percent: 0
+            });
+        }
+
+        if (newNodeMap.has(oobDevId) && newNodeMap.has(oob2Id)) {
+            const dev = newNodeMap.get(oobDevId);
+            const oob2 = newNodeMap.get(oob2Id);
+            const maxTx = Math.max(dev.transmit || 0, oob2.transmit || 0);
+            const maxRx = Math.max(dev.receive || 0, oob2.receive || 0);
+            newEdges.push({
+                from: oobDevId,
+                to: oob2Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: dev.status === 0 && oob2.status === 0 ? 0 : 1,
+                transmit_percent: 0,
+                receive_percent: 0
+            });
+        }
+
+        // 更新边状态
+        if (networkData && networkData.edges) {
+            newEdges.forEach(edge => {
+                const existingEdge = networkData.edges.get(`${edge.from}-${edge.to}`);
+                if (existingEdge) {
+                    networkData.edges.update({
+                        id: `${edge.from}-${edge.to}`,
+                        status: edge.status,
+                        transmit: edge.transmit,
+                        receive: edge.receive,
+                        color: {
+                            color: getLinkColorWithInterPort(edge, newNodeMap), // 使用新连线颜色逻辑
+                            highlight: '#ffffff'
+                        }
+                    });
+                }
+            });
+        }
+
+        // 已移除：防火墙主/备的状态/连线刷新特例
+
+        // 更新全局变量
+        nodes = newNodes;
+        nodeMap = newNodeMap;
+        edges = newEdges;
+        // 重建端口索引并重算故障节点集合
+        try { buildPortIndex(nodes); } catch (e) {}
+        try { recomputeDownNodeIds(); } catch (e) {}
+
+        // 重新渲染告警列表
+        await renderAlarmList(nodes);
+
+        console.log('数据更新成功');
+    } catch (e) {
+        console.error('数据更新失败:', e);
+        // 不影响当前数据展示
+    }
+}, 6 * 60 * 1000);
+
+loadTopology();
+</script>
+<script>
+// 管理员模式按钮点击兜底逻辑：若已登录1小时内，直接跳转配置页；否则跳转登录页
+(function(){
+  var btn = document.getElementById('admin-mode-toggle');
+  if (btn) {
+    btn.addEventListener('click', function(){
+      try {
+        var token = localStorage.getItem('token');
+        var tStr = localStorage.getItem('token_time');
+        var t = tStr ? Number(tStr) : 0;
+        var withinOneHour = !!(token && t && (Date.now() - t < 60 * 60 * 1000));
+        window.location.href = withinOneHour ? '/config.html' : '/login.html';
+      } catch (e) {
+        window.location.href = '/login.html';
+      }
+    });
+  }
+})();
+</script>
+</body>
+</html>

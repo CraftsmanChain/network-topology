@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>配置中心</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif; background:#f7f7f9; margin:0; }
+      header { background:#1f2328; color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; }
+      header .title { font-weight:600; }
+      header .actions a { color:#fff; text-decoration:none; margin-left:12px; }
+      .container { max-width: 1200px; margin: 20px auto; padding: 0 16px; }
+      .section { background:#fff; border:1px solid #eee; border-radius:8px; margin-bottom:18px; overflow:hidden; }
+      .section h3 { margin:0; padding:12px 16px; background:#fafbfc; border-bottom:1px solid #eee; display:flex; align-items:center; justify-content:space-between; }
+      .section .body { padding: 16px; }
+      .row { display:flex; gap:16px; }
+      .col { flex: 1; }
+      .btn { display:inline-block; padding:8px 12px; background:#2b6ef3; color:#fff; border:none; border-radius:6px; cursor:pointer; }
+      .btn.secondary { background:#6a737d; }
+      .btn:disabled { opacity:0.5; cursor:not-allowed; }
+      .muted { color:#666; font-size:13px; }
+      .list { margin-top:8px; }
+      .list-item { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f0f0f0; }
+      .msg { margin-top:8px; min-height:20px; color:#b00; }
+      .ok { color:#0a7; }
+      .grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px; }
+      .field { display:flex; flex-direction:column; }
+      .field label { font-size:13px; color:#333; margin-bottom:6px; }
+      .field input { padding:8px; border:1px solid #ddd; border-radius:6px; }
+      #topo-editor { height: 520px; border:1px solid #eee; border-radius:8px; }
+      .panel { border-left:1px solid #eee; padding-left:12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="title">配置中心</div>
+      <div class="actions">
+        <a href="#" id="go-front-edit">前台编辑</a>
+        <a href="/" id="logout-link">退出登录</a>
+      </div>
+    </header>
+
+    <div class="container">
+      <p class="muted">目标：以表单与交互方式编辑配置。图标配置写入 topology_config.default_icons；拓扑支持点选编辑显示名称与拖拽位置并保存；默认展示 devices.json 的设备。</p>
+
+      <div id="globalMsg" class="msg"></div>
+
+      <div class="section" id="sec-global">
+        <h3>
+          <span>全局配置（topology_config）</span>
+          <span>
+            <button class="btn" id="save-global-config">保存</button>
+            <button class="btn secondary" id="backup-global-config">备份</button>
+            <button class="btn secondary" id="toggle-hist-global">历史配置</button>
+            <button class="btn secondary" id="refresh-global-config">刷新</button>
+          </span>
+        </h3>
+        <div class="body">
+          <div class="grid" style="margin-bottom:8px;">
+            <div class="field"><label>当前编辑的拓扑配置</label>
+              <select id="config-profile"></select>
+            </div>
+            <div class="field"><label>首页显示拓扑</label>
+              <select id="home-topology"></select>
+            </div>
+          </div>
+          <div class="grid" style="margin-bottom:8px;">
+            <div class="field"><label>新建拓扑名称</label><input id="new-profile-name" placeholder="例如：ethernet2" /></div>
+            <div class="field" style="align-items:flex-end;"><button class="btn" id="create-profile">新增拓扑</button></div>
+            <div class="field" style="align-items:flex-end;"><button class="btn secondary" id="delete-profile">删除当前拓扑</button></div>
+          </div>
+          <div class="grid">
+            <div class="field"><label>拓扑标题</label><input id="topo-title" placeholder="例如：智元集群拓扑监控" /></div>
+            <div class="field"><label>交换机图标</label><input id="icon-device" placeholder="icons/sw.png" /></div>
+            <div class="field"><label>交换机故障图标</label><input id="icon-device-bad" placeholder="icons/sw-bad.png" /></div>
+            <div class="field"><label>交换机组图标</label><input id="icon-group" placeholder="icons/sigle-sw.png" /></div>
+            <div class="field"><label>交换机组故障图标</label><input id="icon-group-bad" placeholder="icons/sigle-sw-bad.png" /></div>
+            <div class="field"><label>核心交换机图标</label><input id="icon-core-switch" placeholder="icons/core.png" /></div>
+            <div class="field"><label>核心交换机故障图标</label><input id="icon-core-switch-bad" placeholder="icons/core-bad.png" /></div>
+            <div class="field"><label>防火墙图标</label><input id="icon-firewall" placeholder="icons/firewall.png" /></div>
+            <div class="field"><label>防火墙故障图标</label><input id="icon-firewall-bad" placeholder="icons/firewall.png" /></div>
+          </div>
+          <div class="row">
+            <div class="col">
+              <div class="muted">历史配置（topology_config）</div>
+              <div class="list" id="hist-global" style="display:none;"></div>
+            </div>
+          </div>
+          <div class="msg" id="msg-global"></div>
+        </div>
+      </div>
+
+      <div class="section" id="sec-topology">
+        <h3>
+          <span>拓扑编辑（devices.json + positions.json + topology_config.aliases）</span>
+          <span>
+            <button class="btn" id="save-positions">保存位置</button>
+            <button class="btn secondary" id="backup-positions">备份位置</button>
+            <button class="btn secondary" id="toggle-hist-topology">历史配置</button>
+            <button class="btn secondary" id="refresh-topology">刷新</button>
+            <button class="btn" id="fullscreen-topology">全屏</button>
+          </span>
+        </h3>
+        <div class="body">
+          <div class="row">
+            <div class="col">
+              <div id="topo-editor"></div>
+            </div>
+            <div class="col panel" style="max-width:380px;">
+              <div class="field"><label>设备 ID</label><input id="node-id" disabled /></div>
+              <div class="field"><label>显示名称</label><input id="node-name" placeholder="显示在拓扑上的名称" /></div>
+              <div class="field"><label>是否显示</label><input type="checkbox" id="node-visible" checked /></div>
+              <div class="field"><label>设备类型</label>
+                <select id="node-type">
+                  <option value="switch">交换机</option>
+                  <option value="switch_group">交换机组</option>
+                  <option value="core_switch">核心交换机</option>
+                  <option value="firewall">防火墙</option>
+                </select>
+              </div>
+              <div style="margin-top:10px;">
+                <button class="btn" id="save-node-prop">保存属性</button>
+                <button class="btn secondary" id="save-node-type" style="margin-left:8px;">保存类型</button>
+                <button class="btn secondary" id="save-node-visible" style="margin-left:8px;">保存显示开关</button>
+              </div>
+              <div class="muted" style="margin-top:10px;">说明：选择设备后可编辑显示名称；拖拽设备位置后点击“保存位置”。</div>
+              <div class="msg" id="msg-topology"></div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col">
+              <div class="muted">历史配置（positions.json / topology_config）</div>
+              <div class="list" id="hist-topology" style="display:none;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section" id="sec-groups">
+        <h3>
+          <span>组配置（group_rules.json）</span>
+          <span>
+            <button class="btn" id="new-group">新建组</button>
+            <button class="btn" id="save-groups">保存</button>
+            <button class="btn secondary" id="backup-groups">备份</button>
+            <button class="btn secondary" id="toggle-hist-groups">历史配置</button>
+            <button class="btn secondary" id="refresh-groups">刷新</button>
+          </span>
+        </h3>
+        <div class="body">
+          <div id="groups-list" class="list"></div>
+          <div class="row">
+            <div class="col">
+              <div class="muted">历史配置</div>
+              <div class="list" id="hist-groups" style="display:none;"></div>
+            </div>
+          </div>
+          <div class="msg" id="msg-groups"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.js"></script>
+    <script>
+      const token = localStorage.getItem('token');
+      const auth = token ? { 'Authorization': 'Bearer ' + token } : {};
+
+      async function fetchJSON(url) {
+        const resp = await fetch(url, { headers: { ...auth } });
+        if (resp.status === 404) return {};
+        const data = await resp.text();
+        try { return JSON.parse(data); } catch { return {}; }
+      }
+
+      // 通用：用于组配置的简单 JSON 文本编辑
+      async function loadConfig(name, taId, histId) {
+        const ta = document.getElementById(taId);
+        const histEl = document.getElementById(histId);
+        const obj = await fetchJSON(`/api/config/${name}`);
+        ta.value = JSON.stringify(obj, null, 2);
+        await loadHistory(name, histEl);
+      }
+
+      async function saveConfig(name, taId, msgId, histId) {
+        const ta = document.getElementById(taId);
+        const msg = document.getElementById(msgId);
+        msg.textContent = ''; msg.className = 'msg';
+        let obj;
+        try { obj = JSON.parse(ta.value); }
+        catch (e) { msg.textContent = 'JSON 格式错误：' + e.message; return; }
+        try { await putConfig(name, obj); msg.textContent = '保存成功，已生效'; msg.className = 'msg ok'; await loadHistory(name, document.getElementById(histId)); }
+        catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
+      }
+
+      async function loadHistory(name, container) {
+        container.innerHTML = '';
+        const resp = await fetch(`/api/history/${name}`, { headers: { ...auth } });
+        if (!resp.ok) { container.textContent = '无法加载历史'; return; }
+        const data = await resp.json();
+        const entries = data.entries || [];
+        if (!entries.length) { container.textContent = '暂无历史'; return; }
+        for (const e of entries) {
+          const div = document.createElement('div');
+          div.className = 'list-item';
+          const left = document.createElement('div'); left.textContent = `${e.timestamp} (${e.size} 字节)`;
+          const btn = document.createElement('button'); btn.className = 'btn secondary'; btn.textContent = '回滚';
+          btn.addEventListener('click', async () => {
+            const ok = confirm(`回滚到 ${e.timestamp} ？`);
+            if (!ok) return;
+            const r = await fetch(`/api/history/${name}/rollback`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json', ...auth },
+              body: JSON.stringify({ timestamp: e.timestamp })
+            });
+            if (r.ok) {
+              if (name === 'topology_config') { await refreshGlobalConfig(); await refreshTopology(); }
+              if (name === 'positions') { await refreshTopology(); }
+            }
+          });
+          div.appendChild(left); div.appendChild(btn); container.appendChild(div);
+        }
+      }
+
+      async function putConfig(name, obj) {
+        const resp = await fetch(`/api/config/${name}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json', ...auth },
+          body: JSON.stringify(obj)
+        });
+        const data = await resp.json().catch(()=>({}));
+        if (!resp.ok) throw new Error(data.error || '保存失败');
+        return data;
+      }
+
+      async function backupConfig(name, msgId, histId) {
+        const msg = document.getElementById(msgId);
+        msg.textContent = ''; msg.className = 'msg';
+        try {
+          const resp = await fetch(`/api/history/${name}/backup`, { method: 'POST', headers: { ...auth } });
+          const data = await resp.json().catch(()=>({}));
+          if (!resp.ok) throw new Error(data.error || '备份失败');
+          msg.textContent = '备份成功'; msg.className = 'msg ok';
+          if (histId) await loadHistory(name, document.getElementById(histId));
+        } catch (e) {
+          msg.textContent = e && e.message ? e.message : '备份失败';
+          msg.className = 'msg';
+        }
+      }
+
+      function toggleFullscreen(el) {
+        const doc = document;
+        if (!doc.fullscreenElement) {
+          el.requestFullscreen && el.requestFullscreen();
+        } else {
+          doc.exitFullscreen && doc.exitFullscreen();
+        }
+      }
+
+      async function toggleHistory(name, containerId) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        const isHidden = el.style.display === 'none' || el.style.display === '';
+        if (isHidden) {
+          el.style.display = 'block';
+          await loadHistory(name, el);
+        } else {
+          el.style.display = 'none';
+        }
+      }
+
+      // ===== 组配置：列表与弹窗编辑 =====
+      let groupRules = { version: 1, updatedAt: '', groups: [] };
+
+      function renderGroupsList() {
+        const container = document.getElementById('groups-list');
+        container.innerHTML = '';
+        const groups = groupRules.groups || [];
+        if (!groups.length) { container.textContent = '暂无组配置'; return; }
+        for (const g of groups) {
+          const li = document.createElement('div'); li.className = 'list-item';
+          const left = document.createElement('div');
+          const includeCount = (g.include_ids?.length || 0) + (g.include_regex?.length || 0);
+          left.textContent = `${g.name || g.id} · ID:${g.id} · 匹配项:${includeCount}`;
+          const bar = document.createElement('div');
+          const btnEdit = document.createElement('button'); btnEdit.className = 'btn'; btnEdit.textContent = '编辑';
+          const btnDel = document.createElement('button'); btnDel.className = 'btn secondary'; btnDel.textContent = '删除'; btnDel.style.marginLeft = '8px';
+          btnEdit.addEventListener('click', () => openGroupModal(g));
+          btnDel.addEventListener('click', () => {
+            const ok = confirm(`删除组 ${g.name || g.id} ？`);
+            if (!ok) return;
+            groupRules.groups = groups.filter(x => x.id !== g.id);
+            renderGroupsList();
+          });
+          bar.appendChild(btnEdit); bar.appendChild(btnDel);
+          li.appendChild(left); li.appendChild(bar); container.appendChild(li);
+        }
+      }
+
+      function openGroupModal(g) {
+        document.getElementById('gm-msg').textContent = '';
+        const isNew = !g;
+        const modal = document.getElementById('group-modal');
+        modal.style.display = 'flex';
+        document.getElementById('gm-id').value = g?.id || '';
+        document.getElementById('gm-name').value = g?.name || '';
+        document.getElementById('gm-icon').value = g?.icon_url || '';
+        document.getElementById('gm-color').value = (g?.style_override?.color) || '';
+        document.getElementById('gm-include-ids').value = (g?.include_ids || []).join(',');
+        document.getElementById('gm-include-re').value = (g?.include_regex || []).join(',');
+        document.getElementById('gm-exclude-ids').value = (g?.exclude_ids || []).join(',');
+        document.getElementById('gm-exclude-re').value = (g?.exclude_regex || []).join(',');
+        const forced = (g?.style_override?.forcedStatus) || '';
+        document.getElementById('gm-forced').value = forced || '';
+        document.getElementById('gm-override-icon').value = (g?.style_override?.icon_url) || '';
+        document.getElementById('gm-save').onclick = () => saveGroupFromModal(isNew ? null : g.id);
+        document.getElementById('gm-cancel').onclick = () => { modal.style.display = 'none'; };
+        // 未登录禁用保存
+        document.getElementById('gm-save').disabled = !token;
+      }
+
+      function saveGroupFromModal(editId) {
+        const msgEl = document.getElementById('gm-msg'); msgEl.textContent = '';
+        const id = document.getElementById('gm-id').value.trim();
+        const name = document.getElementById('gm-name').value.trim();
+        if (!id || !name) { msgEl.textContent = 'ID 与 名称不能为空'; return; }
+        const icon_url = document.getElementById('gm-icon').value.trim();
+        const color = document.getElementById('gm-color').value.trim();
+        const incIds = document.getElementById('gm-include-ids').value.trim();
+        const incRe = document.getElementById('gm-include-re').value.trim();
+        const excIds = document.getElementById('gm-exclude-ids').value.trim();
+        const excRe = document.getElementById('gm-exclude-re').value.trim();
+        const forced = document.getElementById('gm-forced').value.trim();
+        const overrideIcon = document.getElementById('gm-override-icon').value.trim();
+        const toArr = (s) => s ? s.split(',').map(x=>x.trim()).filter(Boolean) : [];
+        const groupObj = {
+          id, name, icon_url,
+          include_ids: toArr(incIds), include_regex: toArr(incRe),
+          exclude_ids: toArr(excIds), exclude_regex: toArr(excRe),
+          style_override: { forcedStatus: forced || null, color: color || null, icon_url: overrideIcon || null }
+        };
+        const exists = (groupRules.groups || []).find(x => x.id === id);
+        if (!editId && exists) { msgEl.textContent = '该 ID 已存在'; return; }
+        const current = groupRules.groups || [];
+        if (editId && editId !== id) {
+          // 更改 ID：删除旧项后插入新项
+          const filtered = current.filter(x => x.id !== editId);
+          groupRules.groups = [...filtered, groupObj];
+        } else if (editId || exists) {
+          // 不更改 ID：替换原项
+          groupRules.groups = current.map(x => x.id === (editId || id) ? groupObj : x);
+        } else {
+          // 新建
+          groupRules.groups = [...current, groupObj];
+        }
+        // 本地更新后立即持久化到服务器，并刷新列表与历史，避免用户需要再点一次“保存”导致状态不一致
+        (async () => {
+          try {
+            renderGroupsList();
+            const obj = { ...groupRules, version: groupRules.version || 1, updatedAt: new Date().toISOString() };
+            await putConfig('group_rules', obj);
+            await refreshGroupsUI();
+            document.getElementById('group-modal').style.display = 'none';
+          } catch (e) {
+            msgEl.textContent = e.message || '保存失败';
+          }
+        })();
+      }
+
+      async function refreshGroupsUI() {
+        const msg = document.getElementById('msg-groups');
+        msg.textContent = ''; msg.className = 'msg';
+        try {
+          const resp = await fetch('/api/config/group_rules', { headers: { ...auth } });
+          if (!resp.ok) {
+            msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载组配置' : ('无法加载组配置（HTTP ' + resp.status + '）');
+            msg.className = 'msg';
+            // 保留现有列表，避免误清空
+            renderGroupsList();
+            return;
+          }
+          const data = await resp.json().catch(()=>({}));
+          groupRules = (data && data.groups) ? data : { version: 1, updatedAt: '', groups: [] };
+          renderGroupsList();
+        } catch (e) {
+          msg.textContent = '加载组配置失败：' + (e && e.message ? e.message : String(e));
+          msg.className = 'msg';
+          renderGroupsList();
+        }
+      }
+
+      async function saveGroupsToJSON() {
+        const msg = document.getElementById('msg-groups'); msg.textContent = ''; msg.className = 'msg';
+        const obj = { ...groupRules, version: groupRules.version || 1, updatedAt: new Date().toISOString() };
+        try { await putConfig('group_rules', obj); msg.textContent = '保存成功'; msg.className = 'msg ok'; await refreshGroupsUI(); }
+        catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
+      }
+
+      // 全局配置：标题 + 图标
+      async function refreshGlobalConfig() {
+        const msg = document.getElementById('msg-global');
+        msg.textContent = ''; msg.className = 'msg';
+        try {
+          const resp = await fetch('/api/config/topology_config', { headers: { ...auth } });
+          if (!resp.ok) {
+            msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载全局配置' : ('无法加载全局配置（HTTP ' + resp.status + '）');
+            msg.className = 'msg';
+            return;
+          }
+          const cfg = await resp.json().catch(()=>({}));
+          const buildOpts = (sel, names, current) => { while (sel.firstChild) sel.removeChild(sel.firstChild); names.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n === 'main' ? '主拓扑（main）' : n; sel.appendChild(o); }); sel.value = names.includes(current) ? current : 'main'; };
+          const names = ['main', ...Object.keys(cfg.profiles || {})];
+          const homeSel = document.getElementById('home-topology');
+          if (homeSel) buildOpts(homeSel, names, (cfg && cfg.home_topology) ? String(cfg.home_topology) : 'main');
+          const profSel = document.getElementById('config-profile');
+          const prevActive = profSel ? (profSel.value || 'main') : 'main';
+          if (profSel) buildOpts(profSel, names, prevActive);
+          const activeProfile = profSel ? (profSel.value || 'main') : 'main';
+          const prof = (cfg && cfg.profiles && cfg.profiles[activeProfile]) ? cfg.profiles[activeProfile] : cfg;
+          const titleEl = document.getElementById('topo-title');
+          if (typeof prof.title !== 'undefined') titleEl.value = String(prof.title);
+          const d = (prof && prof.default_icons) || {};
+          const setIf = (elId, v, fallback) => { const el = document.getElementById(elId); el.value = typeof v !== 'undefined' ? v : (el.value || fallback); };
+          setIf('icon-device', d.device, 'icons/sw.png');
+          setIf('icon-device-bad', d.device_bad, 'icons/sw-bad.png');
+          setIf('icon-group', d.group, 'icons/sigle-sw.png');
+          setIf('icon-group-bad', d.group_bad, 'icons/sigle-sw-bad.png');
+          setIf('icon-core-switch', d.core_switch, 'icons/core.png');
+          setIf('icon-core-switch-bad', d.core_switch_bad, 'icons/core-bad.png');
+          setIf('icon-firewall', d.firewall, 'icons/firewall.png');
+          setIf('icon-firewall-bad', d.firewall_bad, 'icons/firewall.png');
+          // 历史仅在点击“历史配置”时加载
+        } catch (e) {
+          msg.textContent = '加载全局配置失败：' + (e && e.message ? e.message : String(e));
+          msg.className = 'msg';
+        }
+      }
+
+      async function saveGlobalConfig() {
+        const msg = document.getElementById('msg-global');
+        msg.textContent = ''; msg.className = 'msg';
+        const cfg = await fetchJSON('/api/config/topology_config');
+        const profSel = document.getElementById('config-profile');
+        const activeProfile = profSel ? (profSel.value || 'main') : 'main';
+        cfg.profiles = cfg.profiles || {};
+        const target = activeProfile === 'main' ? cfg : (cfg.profiles[activeProfile] = cfg.profiles[activeProfile] || {});
+        target.title = document.getElementById('topo-title').value.trim();
+        target.default_icons = target.default_icons || {};
+        target.default_icons.device = document.getElementById('icon-device').value.trim();
+        target.default_icons.device_bad = document.getElementById('icon-device-bad').value.trim();
+        target.default_icons.group = document.getElementById('icon-group').value.trim();
+        target.default_icons.group_bad = document.getElementById('icon-group-bad').value.trim();
+        target.default_icons.core_switch = document.getElementById('icon-core-switch').value.trim();
+        target.default_icons.core_switch_bad = document.getElementById('icon-core-switch-bad').value.trim();
+        target.default_icons.firewall = document.getElementById('icon-firewall').value.trim();
+        target.default_icons.firewall_bad = document.getElementById('icon-firewall-bad').value.trim();
+        // 兼容旧字段：同步主/备为同一图标
+        target.default_icons.firewall_main = target.default_icons.firewall;
+        target.default_icons.firewall_backup = target.default_icons.firewall;
+        // 首页显示拓扑选择
+        const homeSel = document.getElementById('home-topology');
+        if (homeSel) cfg.home_topology = homeSel.value || 'main';
+        try { await putConfig('topology_config', cfg); msg.textContent = '保存成功'; msg.className = 'msg ok'; localStorage.setItem('topo_config_updated', String(Date.now())); }
+        catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
+      }
+
+      async function createProfile() {
+        const msg = document.getElementById('msg-global');
+        msg.textContent = ''; msg.className = 'msg';
+        const name = document.getElementById('new-profile-name').value.trim();
+        if (!name || name === 'main') { msg.textContent = '名称不能为空且不可为 main'; return; }
+        const cfg = await fetchJSON('/api/config/topology_config');
+        cfg.profiles = cfg.profiles || {};
+        if (cfg.profiles[name]) { msg.textContent = '该拓扑已存在'; return; }
+        cfg.profiles[name] = { title: name, default_icons: {}, types: {}, aliases: {}, visibility: { devices: {}, groups: {} } };
+        try { await putConfig('topology_config', cfg); document.getElementById('config-profile').value = name; await refreshGlobalConfig(); msg.textContent = '已新增拓扑'; msg.className = 'msg ok'; }
+        catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
+        try {
+          const pos = await fetchJSON('/api/config/positions');
+          pos.profiles = pos.profiles || {}; pos.profiles[name] = pos.profiles[name] || { nodes: {} };
+          await putConfig('positions', pos);
+        } catch (e) { }
+      }
+
+      async function deleteProfile() {
+        const msg = document.getElementById('msg-global');
+        msg.textContent = ''; msg.className = 'msg';
+        const profSel = document.getElementById('config-profile');
+        const active = profSel ? (profSel.value || 'main') : 'main';
+        if (active === 'main') { msg.textContent = '主拓扑不可删除'; return; }
+        const cfg = await fetchJSON('/api/config/topology_config');
+        cfg.profiles = cfg.profiles || {};
+        if (!cfg.profiles[active]) { msg.textContent = '当前拓扑不存在'; return; }
+        delete cfg.profiles[active];
+        if (cfg.home_topology === active) cfg.home_topology = 'main';
+        try { await putConfig('topology_config', cfg); }
+        catch (e) { msg.textContent = e.message; msg.className = 'msg'; return; }
+        try {
+          const pos = await fetchJSON('/api/config/positions');
+          if (pos && pos.profiles && pos.profiles[active]) { delete pos.profiles[active]; await putConfig('positions', pos); }
+        } catch (e) { }
+        document.getElementById('config-profile').value = 'main';
+        await refreshGlobalConfig();
+        await refreshTopology();
+        msg.textContent = '已删除拓扑'; msg.className = 'msg ok';
+      }
+
+      // 全局：拓扑标题配置
+      async function refreshGlobalTitle() {
+        const cfg = await fetchJSON('/api/config/topology_config');
+        document.getElementById('topo-title').value = (cfg && cfg.title) ? String(cfg.title) : '';
+      }
+
+      async function saveGlobalTitle() {
+        const msg = document.getElementById('msg-global');
+        msg.textContent = ''; msg.className = 'msg';
+        const cfg = await fetchJSON('/api/config/topology_config');
+        const title = document.getElementById('topo-title').value.trim();
+        cfg.title = title;
+        try { await putConfig('topology_config', cfg); msg.textContent = '保存成功'; msg.className = 'msg ok'; localStorage.setItem('topo_config_updated', String(Date.now())); }
+        catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
+      }
+
+      // 拓扑编辑
+      let network; let nodesDS; let edgesDS; let currentPositions = {}; let aliases = {};
+      async function refreshTopology() {
+        const msgElTopo = document.getElementById('msg-topology');
+        msgElTopo.textContent = ''; msgElTopo.className = 'msg';
+        const devices = await fetchJSON('/devices.json');
+        let pos = await fetchJSON('/api/config/positions');
+        // 本地缓存回退：服务不可用或未登录时，从 localStorage 读取
+        if (!pos || !pos.nodes || Object.keys(pos.nodes || {}).length === 0) {
+          try {
+            const ls = localStorage.getItem('positions_local_cache');
+            if (ls) {
+              const parsed = JSON.parse(ls);
+              if (parsed && parsed.nodes && Object.keys(parsed.nodes).length > 0) {
+                pos = parsed;
+                // 友好提示
+                msgElTopo.textContent = '已加载本地缓存的布局（未登录或服务器不可用）';
+                msgElTopo.className = 'msg ok';
+              }
+            }
+          } catch (e) { /* ignore */ }
+        }
+        const cfgResp = await fetch('/api/config/topology_config', { headers: { ...auth } });
+        const grResp = await fetch('/api/config/group_rules', { headers: { ...auth } });
+        if (!cfgResp.ok || !grResp.ok) {
+          msgElTopo.textContent = '拓扑相关配置加载失败：' + (!cfgResp.ok ? ('topology_config ' + cfgResp.status) : '') + (!grResp.ok ? (' group_rules ' + grResp.status) : '');
+          msgElTopo.className = 'msg';
+        }
+        const cfg = await cfgResp.json().catch(()=>({}));
+        const gr = await grResp.json().catch(()=>({}));
+        aliases = cfg.aliases || {};
+        const groups = (gr && gr.groups) ? gr.groups : [];
+        const defaultGroupIcon = (cfg.default_icons && cfg.default_icons.group) || 'icons/sigle-sw.png';
+        const membersByGroup = {};
+        function matches(group, id, name) {
+          const inIds = (group.include_ids || []).includes(id);
+          const inRe = (group.include_regex || []).some(rx => { try { return new RegExp(rx).test(id) || new RegExp(rx).test(name || ''); } catch { return false; } });
+          const exIds = (group.exclude_ids || []).includes(id);
+          const exRe = (group.exclude_regex || []).some(rx => { try { return new RegExp(rx).test(id) || new RegExp(rx).test(name || ''); } catch { return false; } });
+          return (inIds || inRe) && !(exIds || exRe);
+        }
+        const list = Array.isArray(devices) ? devices : Object.values(devices || {});
+        const profSel2 = document.getElementById('config-profile');
+        const activeProfile2 = profSel2 ? (profSel2.value || 'main') : 'main';
+        const posNodes = (activeProfile2 === 'main') ? (pos.nodes || {}) : (((pos.profiles && pos.profiles[activeProfile2] && pos.profiles[activeProfile2].nodes) || {}));
+        const nodes = [];
+        for (const d of list) {
+          const id = d.id || d.device_id || d.name || String(d);
+          const label = aliases[id] || d.name || id;
+          const p = posNodes[id] || {};
+          // 分配到组：若匹配则暂不显示为单节点
+          const gMatched = groups.find(g => matches(g, id, d.name || ''));
+          if (gMatched) {
+            const gid = gMatched.id;
+            if (!membersByGroup[gid]) membersByGroup[gid] = [];
+            membersByGroup[gid].push({ id, label });
+            continue;
+          }
+          // 使用与首页一致的设备图标样式
+          const cfgType = cfg.types || {};
+          const t = cfgType[id] || 'switch';
+          const dicons = (cfg && cfg.default_icons) || {};
+          const img = (t === 'core_switch') ? (dicons.core_switch || 'icons/core.png') : (t === 'firewall') ? (dicons.firewall || 'icons/firewall.png') : (dicons.device || 'icons/sw.png');
+          nodes.push({ id, label, x: p.x, y: p.y, fixed: false, physics: false, shape: 'image', image: img, size: 28 });
+          if (p && typeof p.x === 'number' && typeof p.y === 'number') currentPositions[id] = { x: p.x, y: p.y };
+        }
+        // 添加组节点
+        for (const g of groups) {
+          const gid = 'group:' + g.id;
+          const label = g.name || g.id;
+          const p = posNodes[gid] || {};
+          const iconCandidate = (g.style_override && g.style_override.icon_url) || g.icon_url || '';
+          const icon = (iconCandidate && (iconCandidate.startsWith('icons/') || iconCandidate.startsWith('/icons/'))) ? iconCandidate : defaultGroupIcon;
+          nodes.push({ id: gid, label, x: p.x, y: p.y, fixed: false, physics: false, shape: 'image', image: icon, size: 32 });
+          if (p && typeof p.x === 'number' && typeof p.y === 'number') currentPositions[gid] = { x: p.x, y: p.y };
+        }
+        const edges = [];
+        const container = document.getElementById('topo-editor');
+        nodesDS = new vis.DataSet(nodes);
+        edgesDS = new vis.DataSet(edges);
+        const options = { physics: false, interaction: { dragNodes: true }, nodes: { font: { size: 14 } } };
+        network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, options);
+        network.on('dragEnd', function(params){
+          if (params && params.nodes && params.nodes.length) {
+            const nid = params.nodes[0]; const npos = network.getPositions([nid])[nid];
+            currentPositions[nid] = { x: npos.x, y: npos.y };
+          }
+        });
+      network.on('selectNode', async function(params){
+          const nid = params.nodes[0]; const n = nodesDS.get(nid);
+          document.getElementById('node-id').value = n.id;
+          document.getElementById('node-name').value = aliases[n.id] || n.label || '';
+          // 加载类型
+          try {
+            const cfgAll = await fetchJSON('/api/config/topology_config');
+            const profSel = document.getElementById('config-profile');
+            const activeProfile = profSel ? (profSel.value || 'main') : 'main';
+            const cfgType = (activeProfile === 'main') ? (cfgAll.types || {}) : (((cfgAll.profiles && cfgAll.profiles[activeProfile] && cfgAll.profiles[activeProfile].types) || {}));
+            document.getElementById('node-type').value = cfgType[n.id] || 'switch';
+          } catch (e) { document.getElementById('node-type').value = 'switch'; }
+          // 加载可见性并设置复选框
+          try {
+            const cfgVisWrap = await fetchJSON('/api/config/topology_config');
+            const profSel = document.getElementById('config-profile');
+            const activeProfile = profSel ? (profSel.value || 'main') : 'main';
+            const vis = (activeProfile === 'main') ? ((cfgVisWrap && cfgVisWrap.visibility) || {}) : (((cfgVisWrap && cfgVisWrap.profiles && cfgVisWrap.profiles[activeProfile] && cfgVisWrap.profiles[activeProfile].visibility) || {}));
+            const devVis = vis.devices || {};
+            const grpVis = vis.groups || {};
+            const isGroup = String(n.id).startsWith('group:');
+            const gid = isGroup ? String(n.id).slice('group:'.length) : '';
+            const visible = isGroup ? (grpVis[gid] !== false) : (devVis[n.id] !== false);
+            const chk = document.getElementById('node-visible');
+            if (chk) chk.checked = !!visible;
+          } catch (e) { /* ignore */ }
+          // 若为组节点，显示成员列表提示
+          const msgEl = document.getElementById('msg-topology');
+          msgEl.className = 'msg';
+          if (String(n.id).startsWith('group:')) {
+            const gid = String(n.id).slice('group:'.length);
+            const members = membersByGroup[gid] || [];
+            const names = members.map(m => m.label || m.id).join(', ');
+            msgEl.textContent = members.length ? `组成员：${names}` : '该组当前无匹配设备';
+          } else {
+            msgEl.textContent = '';
+          }
+          document.getElementById('msg-topology').className = 'msg';
+      });
+        // 历史仅在点击“历史配置”时加载
+      }
+
+      async function savePositions() {
+        const msgEl = document.getElementById('msg-topology');
+        msgEl.textContent = ''; msgEl.className = 'msg';
+        // 收集所有节点的当前位置，避免只保存拖拽过的节点导致刷新后部分回退
+        let out = { version: 1, updatedAt: new Date().toISOString(), nodes: {} };
+        try {
+          const ids = (nodesDS && typeof nodesDS.getIds === 'function') ? nodesDS.getIds() : [];
+          if (ids.length && network) {
+            const pos = network.getPositions(ids);
+            ids.forEach(id => { const p = pos[id]; if (p) out.nodes[id] = { x: p.x, y: p.y }; });
+          } else {
+            // 兜底：使用当前累计的拖拽位置
+            out = { version: 1, nodes: currentPositions };
+          }
+          const prev = await fetchJSON('/api/config/positions');
+          const profSel = document.getElementById('config-profile');
+          const activeProfile = profSel ? (profSel.value || 'main') : 'main';
+          const next = { ...(prev || {}), version: 1, updatedAt: new Date().toISOString() };
+          next.profiles = next.profiles || {};
+          if (activeProfile === 'main') { next.nodes = out.nodes; } else { next.profiles[activeProfile] = next.profiles[activeProfile] || {}; next.profiles[activeProfile].nodes = out.nodes; }
+          const res = await putConfig('positions', next);
+          if (res && res.message === 'no changes') {
+            msgEl.textContent = '位置未变化（未写入服务器）'; msgEl.className = 'msg';
+          } else {
+            msgEl.textContent = '位置已保存（已写入服务器）'; msgEl.className = 'msg ok';
+          }
+          localStorage.setItem('positions_updated', String(Date.now()));
+          try { Object.entries(out.nodes).forEach(([id, p]) => { network.moveNode(id, p.x, p.y); }); } catch (e) {}
+        } catch (e) {
+          // 服务器保存失败时的本地回退：写入 localStorage 并广播更新事件
+          try {
+            localStorage.setItem('positions_local_cache', JSON.stringify(out));
+            localStorage.setItem('positions_updated', String(Date.now()));
+            msgEl.textContent = '服务器保存失败，已写入本地缓存并应用当前布局'; msgEl.className = 'msg ok';
+            // 即时应用到当前图，给予可见反馈
+            try { Object.entries(out.nodes).forEach(([id, p]) => { network.moveNode(id, p.x, p.y); }); } catch (e2) {}
+          } catch (_) {
+            msgEl.textContent = e && e.message ? ('保存失败：' + e.message) : '保存失败'; msgEl.className = 'msg';
+          }
+        }
+      }
+
+      async function saveNodeProp() {
+        const id = document.getElementById('node-id').value;
+        if (!id) return;
+        const name = document.getElementById('node-name').value.trim();
+        const cfg = await fetchJSON('/api/config/topology_config');
+        const profSel = document.getElementById('config-profile');
+        const activeProfile = profSel ? (profSel.value || 'main') : 'main';
+        if (activeProfile === 'main') {
+          cfg.aliases = cfg.aliases || {};
+          cfg.aliases[id] = name;
+        } else {
+          cfg.profiles = cfg.profiles || {};
+          const prof = cfg.profiles[activeProfile] = cfg.profiles[activeProfile] || {};
+          prof.aliases = prof.aliases || {};
+          prof.aliases[id] = name;
+        }
+        try { await putConfig('topology_config', cfg); document.getElementById('msg-topology').textContent = '属性已保存'; document.getElementById('msg-topology').className = 'msg ok'; aliases[id] = name; nodesDS.update({ id, label: name || id }); localStorage.setItem('topo_config_updated', String(Date.now())); }
+        catch (e) { document.getElementById('msg-topology').textContent = e.message; document.getElementById('msg-topology').className = 'msg'; }
+      }
+
+      async function saveNodeType() {
+        const id = document.getElementById('node-id').value;
+        if (!id) return;
+        const type = document.getElementById('node-type').value;
+        const cfg = await fetchJSON('/api/config/topology_config');
+        const profSel = document.getElementById('config-profile');
+        const activeProfile = profSel ? (profSel.value || 'main') : 'main';
+        if (activeProfile === 'main') {
+          cfg.types = cfg.types || {};
+          cfg.types[id] = type;
+        } else {
+          cfg.profiles = cfg.profiles || {};
+          const prof = cfg.profiles[activeProfile] = cfg.profiles[activeProfile] || {};
+          prof.types = prof.types || {};
+          prof.types[id] = type;
+        }
+        try { await putConfig('topology_config', cfg); document.getElementById('msg-topology').textContent = '类型已保存'; document.getElementById('msg-topology').className = 'msg ok'; localStorage.setItem('topo_config_updated', String(Date.now())); }
+        catch (e) { document.getElementById('msg-topology').textContent = e.message; document.getElementById('msg-topology').className = 'msg'; }
+      }
+
+      async function saveNodeVisible() {
+        const id = document.getElementById('node-id').value;
+        if (!id) return;
+        const visible = !!document.getElementById('node-visible').checked;
+        const cfg = await fetchJSON('/api/config/topology_config');
+        const profSel = document.getElementById('config-profile');
+        const activeProfile = profSel ? (profSel.value || 'main') : 'main';
+        const target = (function(){
+          if (activeProfile === 'main') {
+            cfg.visibility = cfg.visibility || { devices: {}, groups: {} };
+            return cfg.visibility;
+          } else {
+            cfg.profiles = cfg.profiles || {};
+            const prof = cfg.profiles[activeProfile] = cfg.profiles[activeProfile] || {};
+            prof.visibility = prof.visibility || { devices: {}, groups: {} };
+            return prof.visibility;
+          }
+        })();
+        if (String(id).startsWith('group:')) {
+          const gid = String(id).slice('group:'.length);
+          target.groups = target.groups || {};
+          target.groups[gid] = visible;
+        } else {
+          target.devices = target.devices || {};
+          target.devices[id] = visible;
+        }
+        try { await putConfig('topology_config', cfg); document.getElementById('msg-topology').textContent = '显示开关已保存'; document.getElementById('msg-topology').className = 'msg ok'; localStorage.setItem('topo_config_updated', String(Date.now())); }
+        catch (e) { document.getElementById('msg-topology').textContent = e.message; document.getElementById('msg-topology').className = 'msg'; }
+      }
+
+      // wire buttons
+      document.getElementById('save-global-config').addEventListener('click', () => saveGlobalConfig());
+      document.getElementById('backup-global-config').addEventListener('click', () => backupConfig('topology_config', 'msg-global', 'hist-global'));
+      document.getElementById('toggle-hist-global').addEventListener('click', () => toggleHistory('topology_config', 'hist-global'));
+      document.getElementById('refresh-global-config').addEventListener('click', () => refreshGlobalConfig());
+      document.getElementById('create-profile').addEventListener('click', () => createProfile());
+      document.getElementById('delete-profile').addEventListener('click', () => deleteProfile());
+      // 切换编辑的 profile 时刷新显示
+      const profSelectEl = document.getElementById('config-profile');
+      if (profSelectEl) profSelectEl.addEventListener('change', () => { refreshGlobalConfig(); refreshTopology(); });
+      // 前台编辑入口：设置 edit_mode 并跳转首页编辑
+      document.getElementById('go-front-edit').addEventListener('click', (e) => { e.preventDefault(); try { localStorage.setItem('edit_mode', '1'); } catch (e) {} window.location.href = '/?edit=1'; });
+      // 退出登录：清除令牌与编辑标记后跳转登录页
+      const logoutLink = document.getElementById('logout-link');
+      if (logoutLink) {
+        logoutLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          try {
+            localStorage.removeItem('token');
+            localStorage.removeItem('token_time');
+            localStorage.removeItem('edit_mode');
+          } catch (err) {}
+          window.location.href = '/';
+        });
+      }
+      document.getElementById('save-positions').addEventListener('click', () => savePositions());
+      document.getElementById('backup-positions').addEventListener('click', () => backupConfig('positions', 'msg-topology', 'hist-topology'));
+      document.getElementById('toggle-hist-topology').addEventListener('click', () => toggleHistory('positions', 'hist-topology'));
+      document.getElementById('refresh-topology').addEventListener('click', () => refreshTopology());
+      document.getElementById('fullscreen-topology').addEventListener('click', () => toggleFullscreen(document.getElementById('topo-editor')));
+      document.getElementById('save-node-prop').addEventListener('click', () => saveNodeProp());
+      document.getElementById('save-node-type').addEventListener('click', () => saveNodeType());
+      document.getElementById('save-node-visible').addEventListener('click', () => saveNodeVisible());
+      document.getElementById('save-groups').addEventListener('click', () => saveGroupsToJSON());
+      document.getElementById('backup-groups').addEventListener('click', () => backupConfig('group_rules', 'msg-groups', 'hist-groups'));
+      document.getElementById('toggle-hist-groups').addEventListener('click', () => toggleHistory('group_rules', 'hist-groups'));
+      document.getElementById('refresh-groups').addEventListener('click', () => refreshGroupsUI());
+      document.getElementById('new-group').addEventListener('click', () => openGroupModal(null));
+      // 未登录禁用保存按钮
+      const setSavesEnabled = (enabled) => {
+        // 允许“保存位置”在未登录时也可用（写入本地缓存兜底）
+        const ids = ['go-front-edit','save-global-config','backup-global-config','toggle-hist-global','backup-positions','toggle-hist-topology','fullscreen-topology','save-node-prop','save-node-type','save-node-visible','save-groups','backup-groups','toggle-hist-groups'];
+        ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !enabled; });
+      };
+      setSavesEnabled(!!token);
+
+      // init
+      (async function init() {
+        if (!token) document.getElementById('globalMsg').textContent = '提示：未检测到登录令牌，保存与历史操作可能失败。请先登录。';
+        await refreshGlobalConfig();
+        await refreshTopology();
+        await refreshGroupsUI();
+      })();
+    </script>
+    
+    <!-- 组编辑弹窗 -->
+    <div id="group-modal" style="display:none; position:fixed; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
+      <div style="background:#fff; border-radius:8px; padding:16px; width:640px; max-width:90%;">
+        <h3 style="margin:0 0 10px 0;">编辑组属性</h3>
+        <div class="grid">
+          <div class="field"><label>组 ID</label><input id="gm-id" placeholder="唯一 ID" /></div>
+          <div class="field"><label>组名称</label><input id="gm-name" placeholder="显示名称" /></div>
+          <div class="field"><label>组图标 URL</label><input id="gm-icon" placeholder="例如：./assets/icons/group-default.svg" /></div>
+          <div class="field"><label>颜色（十六进制）</label><input id="gm-color" placeholder="#3478f6" /></div>
+        </div>
+        <div class="grid" style="margin-top:8px;">
+          <div class="field"><label>包含 ID（逗号分隔）</label><input id="gm-include-ids" placeholder="id1,id2,id3" /></div>
+          <div class="field"><label>包含正则（逗号分隔）</label><input id="gm-include-re" placeholder="^CORE\\d+-\\d+$,pod5" /></div>
+          <div class="field"><label>排除 ID（逗号分隔）</label><input id="gm-exclude-ids" placeholder="idA,idB" /></div>
+          <div class="field"><label>排除正则（逗号分隔）</label><input id="gm-exclude-re" placeholder="leaf1|leaf2" /></div>
+        </div>
+        <div class="grid" style="margin-top:8px;">
+          <div class="field"><label>强制状态（可空）</label>
+            <select id="gm-forced">
+              <option value="">(空)</option>
+              <option value="UP">UP</option>
+              <option value="DOWN">DOWN</option>
+            </select>
+          </div>
+          <div class="field"><label>覆盖图标 URL（可空）</label><input id="gm-override-icon" placeholder="留空使用组图标" /></div>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px; justify-content:flex-end;">
+          <button class="btn secondary" id="gm-cancel">取消</button>
+          <button class="btn" id="gm-save">保存</button>
+        </div>
+        <div class="msg" id="gm-msg"></div>
+      </div>
+    </div>
+  </body>
+  </html>

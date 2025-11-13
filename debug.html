@@ -1,0 +1,1734 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>智元集群拓扑监控</title>
+<!-- 引入 vis.js -->
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #0d1421;
+    color: #fff;
+}
+#title {
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    padding: 10px;
+    color: #00e5ff;
+    width: calc(100vw - 350px);
+    box-sizing: border-box;
+}
+#topo {
+    width: calc(100vw - 350px);
+    height: calc(100vh - 50px);
+    float: left;
+    position: relative;
+    background: radial-gradient(circle at center, #0d1b2a 0%, #0a1120 100%);
+}
+/* 独立的画布容器，避免清空 legend */
+.topo-canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+.sidebar {
+    position: absolute;
+    top: 50px;
+    right: 0;
+    width: 350px;
+    height: calc(100% - 50px);
+    background-color: #1a1f2e;
+    border-left: 1px solid #2a3244;
+    padding: 10px;
+    overflow-y: auto;
+}
+.sidebar h2 {
+    margin-top: 0;
+    font-size: 18px;
+    color: #00e5ff;
+}
+.port-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+.port-table th, .port-table td {
+    border: 1px solid #2a3244;
+    padding: 4px;
+    font-size: 12px;
+    text-align: center;
+}
+.port-up { color: #00ff9d; }
+.port-down { color: #ff4d4d; }
+.legend {
+    position: absolute;
+    left: 20px;
+    bottom: 20px;
+    background: rgba(26, 31, 46, 0.85);
+    padding: 8px;
+    border-radius: 5px;
+    z-index: 1000;
+    font-size: 12px;
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    margin: 4px 0;
+}
+/* 新增样式 */
+.status-up {
+    color: #00ff9d;
+    font-weight: bold;
+}
+.status-down {
+    color: #ff4d4d;
+    font-weight: bold;
+}
+/* 集群信息数字颜色 */
+.total-count { color: #ffffff; }   /* 白色 */
+.down-count { color: #ff4d4d; }     /* 红色 */
+.online-count { color: #00ff9d; }  /* 绿色 */
+
+/* 集群信息区域样式 */
+.overview-box {
+    background: #1f2637;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.overview-box p {
+    margin: 6px 0;
+    font-size: 14px;
+}
+
+/* 设备详情区域样式 */
+.device-info-box {
+    background: #1f2637;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.device-info-box p {
+    margin: 6px 0;
+    font-size: 14px;
+}
+.device-info-box b {
+    font-size: 16px;
+    color: #00e5ff;
+}
+
+/* 告警列表样式 */
+.alarm-box {
+    background: #1f2637;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.alarm-box h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    color: #00e5ff;
+}
+.alarm-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.alarm-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 13px;
+}
+.alarm-list li span {
+    flex: 1;
+}
+.alarm-list li.alarm {
+    color: #ff4d4d;
+    animation: blink 1.2s infinite;
+}
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* 整行告警标红 */
+.alarm-row {
+    background-color: #3c1e1e !important;
+    color: #ff4d4d !important;
+}
+
+/* 故障节点原图标闪烁 */
+@keyframes node-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+/* 节点标签颜色：正常节点白色，故障节点红色 */
+.vis-network .vis-label {
+    color: #ffffff !important;
+}
+.vis-network .vis-label.status-down {
+    color: #ff4d4d !important;
+}
+
+/* 专线样式：虚线蓝色，故障红色闪烁 */
+@keyframes dash-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+.dash-line {
+    stroke-dasharray: 8,4;
+    stroke: #00e5ff;
+    stroke-width: 2;
+    fill: none;
+    animation: dash-blink 1s infinite;
+}
+.dash-line.down {
+    stroke: #ff4d4d;
+}
+
+/* 图例中专线样式 */
+.legend-item span.dash-legend {
+    display: inline-block;
+    width: 30px;
+    height: 0;
+    border-top: 2px dashed #00e5ff;
+    margin-right: 10px;
+}
+/* 拓扑重置按钮样式（右下角） */
+.reset-btn {
+    position: absolute;
+    right: 20px;
+    bottom: 20px;
+    z-index: 1100;
+    background: #243049;
+    color: #00e5ff;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.reset-btn:hover {
+    background: #2a3751;
+}
+</style>
+</head>
+<body>
+<div id="title">智元集群拓扑监控</div>
+<div id="topo">
+    <div class="legend" id="legend">
+        <div class="legend-item">
+            <span style="display:inline-block;width:30px;height:0;border-top:2px solid #00ff9d;margin-right:10px;"></span>正常链路
+        </div>
+        <div class="legend-item">
+            <span style="display:inline-block;width:30px;height:0;border-top:2px solid #ffd166;margin-right:10px;"></span>中等负载
+        </div>
+        <div class="legend-item">
+            <span style="display:inline-block;width:30px;height:0;border-top:2px solid #ff4444;margin-right:10px;"></span>故障链路
+        </div>
+        <div class="legend-item">
+            <span class="dash-legend"></span>专线
+        </div>
+    </div>
+    <div id="topo-canvas" class="topo-canvas"></div>
+    <button id="reset-topo" class="reset-btn">重置拓扑</button>
+</div>
+<div class="sidebar">
+    <h2 id="sidebar-title">集群信息</h2>
+    <div id="device-info"></div>
+</div>
+
+<script>
+// Prometheus 地址
+
+
+// 链路互联信息缓存
+let linkMap = new Map();
+
+// 防火墙常量
+const FIREWALL_ID = 'NXBHZY_102_-7-B-09-33U_FW01';
+const FIREWALL_ALIAS = '防火墙-主';
+const FIREWALL_IP = '172.16.201.1';
+
+// 防火墙-备常量
+const FIREWALL_BACKUP_ID = 'NXBHZY_Backup_FW_02_102_7B-10';
+const FIREWALL_BACKUP_ALIAS = '防火墙-备';
+
+// 监控项定义（含专线）
+// 已移除 monitors，专线元信息改由本地 prometheus.json 的 lines 驱动
+// 固定专线端口映射与设备名
+const SPECIAL_LINE_PORTS = {
+    '上海专线': 'Eth-Trunk44',
+    '宁夏专线': '25GE1/0/44|25GE2/0/44',
+    '金山专线': '25GE2/0/37',
+    '火山专线': '25GE1/0/37',
+    '周浦-宁夏专线': '25GE1/0/44|25GE2/0/44',
+    '周浦-张江专线': '25GE1/0/43|25GE2/0/43'
+};
+function getLinePort(name) {
+    return SPECIAL_LINE_PORTS[name] || '-';
+}
+const SPECIAL_LINE_DEVICE = 'ACC02';
+
+
+
+// 本地 Prometheus 行数据（专线状态）
+let localPromData = { lines: [], last_updated: null };
+async function loadLocalPrometheusLines() {
+    try {
+        const res = await fetch('prometheus.json');
+        const data = await res.json();
+        localPromData = data || { lines: [], last_updated: null };
+    } catch (e) {
+        console.error('加载 prometheus.json 失败:', e);
+        localPromData = { lines: [], last_updated: null };
+    }
+    return localPromData;
+}
+function getLineStatusByName(name) {
+    const lines = localPromData && Array.isArray(localPromData.lines) ? localPromData.lines : [];
+    const item = lines.find(l => (l.display_name === name) || (l.name === name));
+    if (!item) return null;
+    return item.status;
+}
+function isLineTriggered(name) {
+    const status = getLineStatusByName(name);
+    if (status == null) return false;
+    if (typeof status === 'number') return status !== 0;
+    const s = String(status).toLowerCase();
+    return s === 'down' || s === '1' || s === 'true';
+}
+
+
+
+// 字节单位转换
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// 计算流量占用百分比
+function calcUtil(tx, rx, upPorts) {
+    const maxVal = Math.max(tx||0, rx||0);
+    const totalGb = 400 * 1000 * 1000 * 1000 * upPorts;
+    return totalGb ? (maxVal/totalGb*100) : 0;
+}
+
+// 节点显示名称处理：优先别名，否则取最后一段
+function formatName(name, alias) {
+    if (alias) return alias;
+    const parts = name.split('_');
+    return parts[parts.length - 1];
+}
+
+// 获取节点图标
+function getNodeIcon(d) {
+    if (d.id.includes('25Gnei_AGG01') || d.id.includes('25Gnei_AGG02')) {
+        if (d.status !== 0) {
+            return 'web/core-bad.png';
+        }
+        return 'web/core.png';
+    }
+    if (d.status !== 0) {
+        return 'web/sw-bad.png';
+    }
+    return 'web/sw.png';
+}
+
+// 获取连线颜色：任一设备总体或端口超阈值即按阈值着色
+function getLinkColor(d, nodeMap) {
+    if (d.status !== 0) return '#ff4d4d';
+    const srcNode = nodeMap.get(d.from);
+    const tgtNode = nodeMap.get(d.to);
+    const srcUtil = srcNode ? calcUtil(srcNode.transmit||0, srcNode.receive||0,
+        (srcNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+    const tgtUtil = tgtNode ? calcUtil(tgtNode.transmit||0, tgtNode.receive||0,
+        (tgtNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+    const maxUtil = Math.max(srcUtil, tgtUtil);
+    if (maxUtil < 20) return '#00ff9d';
+    if (maxUtil <= 70) return '#ffd166';
+    return '#ff9e44';
+}
+
+// 显示整体信息
+function showOverview(nodes) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    if (!sidebar || !sidebarTitle) {
+        console.warn('侧边栏元素未找到，跳过渲染');
+        return;
+    }
+    sidebarTitle.textContent = '集群信息';
+    const total = nodes.length;
+    const down = nodes.filter(d => d.status !== 0).length;
+    let html = `<div class="overview-box">`;
+    html += `<p>总设备数: <span class="total-count">${total}</span></p>`;
+    html += `<p>故障设备数: <span class="down-count">${down}</span></p>`;
+    html += `<p>在线设备数: <span class="online-count">${total - down}</span></p>`;
+    html += `</div>`;
+
+    // 监控告警列表（含状态列）
+    html += `<div class="alarm-box">`;
+    html += `<h3>监控告警</h3>`;
+    html += `<table class="port-table"><thead><tr><th>监控项</th><th>监控端口</th><th>监控设备</th><th>是否触发告警</th><th>状态</th></tr></thead><tbody id="alarm-list"></tbody></table>`;
+    html += `</div>`;
+
+    // 设备状态列表
+    html += `<div class="alarm-box">`;
+    html += `<h3>设备状态</h3>`;
+    html += `<table class="port-table"><thead><tr><th>告警设备</th><th>设备状态</th></tr></thead><tbody id="device-status-list"></tbody></table>`;
+    html += `</div>`;
+
+    sidebar.innerHTML = html;
+    renderAlarmList(nodes);
+}
+
+// 渲染告警列表（含状态列）
+async function renderAlarmList(nodes) {
+    const alarmList = document.getElementById('alarm-list');
+    if (!alarmList) return;
+
+        await loadLocalPrometheusLines();
+    const results = (localPromData.lines || []).map(l => {
+        const name = l.display_name || l.name || '未命名专线';
+         const s = l.status;
+         const triggered = (typeof s === 'string' ? s.toLowerCase() === 'down' : (Number(s) !== 0));
+         return {
+             name,
+             port: getLinePort(name),
+             device: SPECIAL_LINE_DEVICE,
+             type: '专线',
+             triggered
+         };
+    });
+
+    let html = '';
+    results.forEach(m => {
+        const status = m.triggered ? 'DOWN' : 'UP';
+        const statusClass = m.triggered ? 'port-down' : 'port-up';
+        html += `<tr class="${m.triggered ? 'alarm alarm-row' : ''}">`;
+        html += `<td>${m.name}</td>`;
+        html += `<td>${m.port}</td>`;
+        html += `<td>${formatName(m.device)}</td>`;
+        html += `<td>${m.triggered ? '是' : '否'}</td>`;
+        html += `<td class="${statusClass}">${status}</td>`;
+        html += `</tr>`;
+    });
+
+    alarmList.innerHTML = html;
+
+    // 同步专线组告警状态以驱动闪烁（当前仅 acc02 组）
+    try {
+        const anyDown = results.some(r => r.triggered);
+        specialLineDownMap['acc02'] = anyDown;
+        updateDownEffects();
+    } catch (e) {
+        console.warn('专线组告警状态同步失败:', e);
+    }
+
+    // 渲染设备状态列表
+    const deviceStatusList = document.getElementById('device-status-list');
+    if (!deviceStatusList) return;
+
+    const downDevices = nodes.filter(n => n.status !== 0);
+    let statusHtml = '';
+
+    if (downDevices.length > 0) {
+        downDevices.forEach(d => {
+            statusHtml += `<tr class="alarm alarm-row">`;
+            statusHtml += `<td>${d.label}</td>`;
+            statusHtml += `<td>DOWN</td>`;
+            statusHtml += `</tr>`;
+        });
+    } else {
+        statusHtml += `<tr><td>无告警</td><td>-</td></tr>`;
+    }
+
+    deviceStatusList.innerHTML = statusHtml;
+}
+
+// 显示设备详情
+function showDeviceInfo(d) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '设备信息';
+    // 防火墙设备：只显示IP、设备名与状态
+    if (d.id === FIREWALL_ID || d.id === FIREWALL_BACKUP_ID) {
+        let html = `<div class="device-info-box">`;
+        const isBackup = d.id === FIREWALL_BACKUP_ID;
+        html += `<p><b>${isBackup ? FIREWALL_BACKUP_ALIAS : FIREWALL_ALIAS}</b></p>`;
+        html += `<p>设备IP: ${isBackup ? (d.ip || '172.16.202.2') : (d.ip || FIREWALL_IP)}</p>`;
+        html += `<p>状态: <span class="${d.status === 0 ? 'status-up' : 'status-down'}">${d.status === 0 ? 'UP' : 'DOWN'}</span></p>`;
+        html += `</div>`;
+        sidebar.innerHTML = html;
+        return;
+    }
+
+    const upPorts = d.ports ? d.ports.filter(p => p.status === 1 || (p.transmit > 0 || p.receive > 0)).length : 0;
+    const deviceUtil = Math.max(d.transmit_percent || 0, d.receive_percent || 0);
+
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>${d.id}</b></p>`;
+    html += `<p>设备IP: ${d.ip || 'N/A'}</p>`;
+    html += `<p>状态: <span class="${d.status === 0 ? 'status-up' : 'status-down'}">${d.status === 0 ? 'UP' : 'DOWN'}</span></p>`;
+    html += `<p>流量占用: ${deviceUtil.toFixed(2)}%</p>`;
+    html += `<p>发送流量: ${formatBytes(d.transmit || 0)}</p>`;
+    html += `<p>接收流量: ${formatBytes(d.receive || 0)}</p>`;
+    html += `</div>`;
+
+    if (d.ports && d.ports.length > 0) {
+        html += `<table class="port-table"><tr><th>端口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr>`;
+        d.ports.forEach(p => {
+            const portUp = p.status === 1 || (p.transmit > 0 || p.receive > 0);
+            const portUtil = Math.max(p.transmit_percent || 0, p.receive_percent || 0);
+            html += `<tr>
+                <td>${p.ifDescr || p.ifIndex}</td>
+                <td class="${portUp ? 'port-up' : 'port-down'}">${portUp ? 'UP' : 'DOWN'}</td>
+                <td>${p.speed_mbps || 0}</td>
+                <td>${formatBytes(p.transmit || 0)}</td>
+                <td>${formatBytes(p.receive || 0)}</td>
+                <td>${portUtil.toFixed(2)}%</td>
+            </tr>`;
+        });
+        html += `</table>`;
+    } else {
+        html += `<p>无端口信息</p>`;
+    }
+    sidebar.innerHTML = html;
+}
+
+// 显示链路详情
+function showLinkInfo(edgeData) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '链路信息';
+    const fromNode = nodeMap.get(edgeData.from);
+    const toNode = nodeMap.get(edgeData.to);
+    const key = makeUndirectedKey(edgeData.from, edgeData.to);
+    const rawLinks = linkMap.get(key) || [];
+    // 规整方向为本端(from)→对端(to)，并按“无向端口对”去重
+    const seen = new Set();
+    const links = [];
+    rawLinks.forEach(rec => {
+        const oriented = (rec.source === edgeData.from && rec.target === edgeData.to)
+            ? rec
+            : {
+                source: rec.target,
+                sourcePort: rec.targetPort,
+                target: rec.source,
+                targetPort: rec.sourcePort
+            };
+        const a = `${oriented.source}|${oriented.sourcePort}`;
+        const b = `${oriented.target}|${oriented.targetPort}`;
+        const undirectedPairId = a < b ? `${a}__${b}` : `${b}__${a}`;
+        if (seen.has(undirectedPairId)) return;
+        seen.add(undirectedPairId);
+        links.push(oriented);
+    });
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>链路详情</b></p>`;
+    html += `<p>源设备: ${fromNode ? fromNode.id : edgeData.from}</p>`;
+    html += `<p>目标设备: ${toNode ? toNode.id : edgeData.to}</p>`;
+    html += `<p>状态: <span class="${edgeData.status === 0 ? 'status-up' : 'status-down'}">${edgeData.status === 0 ? 'UP' : 'DOWN'}</span></p>`;
+    html += `</div>`;
+    if (links.length > 0) {
+        html += `<table class="port-table">
+            <thead>
+                <tr>
+                    <th>本端设备</th>
+                    <th>本端接口</th>
+                    <th>本端接口状态</th>
+                    <th>速率(Gbps)</th>
+                    <th>发送</th>
+                    <th>接收</th>
+                    <th>占用%</th>
+                    <th>对端设备</th>
+                    <th>对端接口</th>
+                    <th>对端接口状态</th>
+                    <th>速率(Gbps)</th>
+                    <th>发送</th>
+                    <th>接收</th>
+                    <th>占用%</th>
+                </tr>
+            </thead>
+            <tbody>`;
+        links.forEach(link => {
+            const srcPort = findPortByName(fromNode, link.sourcePort);
+            const tgtPort = findPortByName(toNode, link.targetPort);
+            let srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
+            let tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+            // 防火墙-备特例：链路信息面板中本机端口固定显示为UP（不受设备/端口状态影响）
+            if (edgeData.from === FIREWALL_BACKUP_ID) {
+                srcUp = true;
+            } else if (fromNode && fromNode.id === FIREWALL_ID) {
+                // 防火墙-主：端口状态与设备状态一致
+                srcUp = (fromNode.status === 0);
+            }
+            if (edgeData.to === FIREWALL_BACKUP_ID) {
+                tgtUp = true;
+            } else if (toNode && toNode.id === FIREWALL_ID) {
+                // 防火墙-主：端口状态与设备状态一致
+                tgtUp = (toNode.status === 0);
+            }
+            const anyDown = !srcUp || !tgtUp;
+            html += `<tr class="${anyDown ? 'alarm alarm-row' : ''}">`;
+            html += `<td>${fromNode ? fromNode.id : link.source}</td>`;
+            html += `<td>${link.sourcePort}</td>`;
+            html += `<td class="${srcUp ? 'port-up' : 'port-down'}">${srcUp ? 'UP' : 'DOWN'}</td>`;
+            html += `<td>${srcPort ? (srcPort.speed_mbps || 0) : '-'}</td>`;
+            html += `<td>${srcPort ? formatBytes(srcPort.transmit || 0) : '-'}</td>`;
+            html += `<td>${srcPort ? formatBytes(srcPort.receive || 0) : '-'}</td>`;
+            html += `<td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>`;
+            html += `<td>${toNode ? toNode.id : link.target}</td>`;
+            html += `<td>${link.targetPort}</td>`;
+            html += `<td class="${tgtUp ? 'port-up' : 'port-down'}">${tgtUp ? 'UP' : 'DOWN'}</td>`;
+            html += `<td>${tgtPort ? (tgtPort.speed_mbps || 0) : '-'}</td>`;
+            html += `<td>${tgtPort ? formatBytes(tgtPort.transmit || 0) : '-'}</td>`;
+            html += `<td>${tgtPort ? formatBytes(tgtPort.receive || 0) : '-'}</td>`;
+            html += `<td>${tgtPort ? Math.max(tgtPort.transmit_percent || 0, tgtPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+    } else {
+        html += `<p>无互联端口信息</p>`;
+    }
+    sidebar.innerHTML = html;
+}
+
+// 显示专线详情
+async function showSpecialLineInfo(lineName) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '专线信息';
+    await loadLocalPrometheusLines();
+    const lines = (localPromData.lines || []).filter(l => (l.display_name === lineName) || (l.name === lineName));
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>${lineName}</b></p>`;
+    html += `</div>`;
+    if (lines.length > 0) {
+        html += `<table class="port-table">
+            <thead>
+                <tr>
+                    <th>专线名称</th>
+                    <th>端口</th>
+                    <th>设备</th>
+                    <th>端口状态</th>
+                    <th>告警状态</th>
+                </tr>
+            </thead>
+            <tbody>`;
+        lines.forEach(l => {
+            const name = l.display_name || l.name || lineName;
+            const s = l.status;
+            const statusStr = typeof s === 'string' ? s.toLowerCase() : s;
+            const triggered = (typeof statusStr === 'string') ? (statusStr === 'down') : (Number(s) !== 0);
+            const portStatus = triggered ? 'DOWN' : 'UP';
+            const statusClass = triggered ? 'port-down' : 'port-up';
+            html += `<tr class="${triggered ? 'alarm alarm-row' : ''}">`;
+            html += `<td>${name}</td>`;
+            html += `<td>${getLinePort(name)}</td>`;
+            html += `<td>${SPECIAL_LINE_DEVICE}</td>`;
+            html += `<td class="${statusClass}">${portStatus}</td>`;
+            html += `<td>${triggered ? '是' : '否'}</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+    } else {
+        html += `<p>无专线信息</p>`;
+    }
+    sidebar.innerHTML = html;
+}
+
+// 显示专线组详情
+async function showSpecialLineGroupInfo(deviceId) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '专线信息';
+    await loadLocalPrometheusLines();
+    const lines = (localPromData.lines || []);
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>${deviceId.includes('SW00B_ACC1') ? 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1 专线组' : 'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02 专线组'}</b></p>`;
+    html += `</div>`;
+    if (lines.length > 0) {
+        html += `<table class="port-table">
+            <thead>
+                <tr>
+                    <th>专线名称</th>
+                    <th>端口</th>
+                    <th>设备</th>
+                    <th>端口状态</th>
+                    <th>告警状态</th>
+                </tr>
+            </thead>
+            <tbody>`;
+        lines.forEach(l => {
+            const name = l.display_name || l.name || '-';
+            const s = l.status;
+            const statusStr = typeof s === 'string' ? s.toLowerCase() : s;
+            const triggered = (typeof statusStr === 'string') ? (statusStr === 'down') : (Number(s) !== 0);
+            const portStatus = triggered ? 'DOWN' : 'UP';
+            const statusClass = triggered ? 'port-down' : 'port-up';
+            html += `<tr class="${triggered ? 'alarm alarm-row' : ''}">`;
+            html += `<td>${name}</td>`;
+            html += `<td>${getLinePort(name)}</td>`;
+            html += `<td>${SPECIAL_LINE_DEVICE}</td>`;
+            html += `<td class="${statusClass}">${portStatus}</td>`;
+            html += `<td>${triggered ? '是' : '否'}</td>`;
+            html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+    } else {
+        html += `<p>无专线信息</p>`;
+    }
+    sidebar.innerHTML = html;
+}
+
+// 显示本机设备的专线端口与告警状态（根据设备ID内置IP与端口清单）
+async function showDeviceSpecialLines(deviceId) {
+    const sidebar = document.getElementById('device-info');
+    const sidebarTitle = document.getElementById('sidebar-title');
+    sidebarTitle.textContent = '专线信息';
+
+    await loadLocalPrometheusLines();
+    const results = (localPromData.lines || []).map(l => {
+        const name = l.display_name || l.name || '-';
+        const s = l.status;
+        const triggered = (typeof s === 'string' ? s.toLowerCase() === 'down' : (Number(s) !== 0));
+        return { name, port: getLinePort(name), triggered };
+    });
+
+    let html = `<div class="device-info-box">`;
+    html += `<p><b>${deviceId}</b></p>`;
+    html += `<p>设备IP：10.111.51.245</p>`;
+    html += `</div>`;
+
+    html += `<table class="port-table">
+        <thead>
+            <tr>
+                <th>专线名称</th>
+                <th>端口</th>
+                <th>端口状态</th>
+                <th>告警状态</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    let anyDown = false;
+    results.forEach(r => {
+        const portStatus = r.triggered ? 'DOWN' : 'UP';
+        const statusClass = r.triggered ? 'port-down' : 'port-up';
+        if (r.triggered) anyDown = true;
+        html += `<tr class="${r.triggered ? 'alarm alarm-row' : ''}">`;
+        html += `<td>${r.name}</td>`;
+        html += `<td>${r.port}</td>`;
+        html += `<td class="${statusClass}">${portStatus}</td>`;
+        html += `<td>${r.triggered ? '是' : '否'}</td>`;
+        html += `</tr>`;
+    });
+    html += `</tbody></table>`;
+    sidebar.innerHTML = html;
+
+    // 更新专线虚线颜色与设备节点状态（任一非UP则标记DOWN并变红）
+    try {
+    const lineGroup = deviceId.includes('25Gnei_ACC02') ? 'acc02' : null;
+        if (lineGroup && networkData && networkData.edges) {
+            const edgesMatch = networkData.edges.get({ filter: e => e.lineGroup === lineGroup });
+            if (edgesMatch && edgesMatch.length > 0) {
+                networkData.edges.update({
+                    id: edgesMatch[0].id,
+                    color: { color: anyDown ? '#ff4d4d' : '#00e5ff', highlight: '#ffffff' }
+                });
+            }
+        }
+        // 记录专线组告警状态，用于闪烁渲染；不修改设备状态
+        if (lineGroup) {
+            if (!specialLineDownMap) specialLineDownMap = {};
+            specialLineDownMap[lineGroup] = anyDown;
+            updateDownEffects();
+        }
+    } catch (e) {
+        console.warn('更新专线状态失败:', e);
+    }
+}
+
+// 根据端口名称查找端口
+function findPortByName(node, portName) {
+    if (!node || !node.ports) return null;
+    return node.ports.find(p => (p.ifDescr || p.ifIndex) === portName);
+}
+
+// 无向边键：将 A-B 与 B-A 合并到同一键，避免重复
+function makeUndirectedKey(a, b) {
+    return a < b ? `${a}-${b}` : `${b}-${a}`;
+}
+
+async function loadLinkInfo() {
+    try {
+        const res = await fetch('links.json');
+        const data = await res.json();
+        if (!Array.isArray(data)) return;
+        linkMap.clear();
+        data.forEach(link => {
+            const key = makeUndirectedKey(link.source, link.target);
+            if (!linkMap.has(key)) linkMap.set(key, []);
+            // 仅存原始条目，点击时按 from/to 方向规整并在展示层去重
+            linkMap.get(key).push(link);
+        });
+    } catch (e) {
+        console.error('加载 links.json 失败:', e);
+    }
+}
+
+// 定义分组
+const groups = {
+    oob: {
+        name: '带外管理交换机',
+        // 交换 带外-交换1 与 带外-交换2 的位置（顺序决定X坐标）
+        ids: ['NXBHZY_102_-7-B-10-36U_PCOOB_ACC2', 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1', 'NXBHZY_103_1B-08_PCOOB_ACC3', 'NXBHZY_102_-7-B-09/10-42U_Public_AGG01'],
+        alias: {
+            'NXBHZY_102_-7-B-10-36U_PCOOB_ACC2': '带外-交换1',
+            'NXBHZY_103_1B-08_PCOOB_ACC3': '带外-交换2',
+            'NXBHZY_102_-7-B-09-36U_SW00B_ACC1': '带外-网络设备',
+            'NXBHZY_102_-7-B-09/10-42U_Public_AGG01': '公网汇聚交换机',
+        },
+        y: -260
+    },
+    core: {
+        name: '核心交换机',
+        ids: ['NXBHZY_102_7-B-05-46U_25Gnei_AGG01', 'NXBHZY_102_-7-B-07-46U_25Gnei_AGG02'],
+        alias: {
+            'NXBHZY_102_7-B-05-46U_25Gnei_AGG01': '核心交换1',
+            'NXBHZY_102_-7-B-07-46U_25Gnei_AGG02': '核心交换2'
+        },
+        y: -120
+    },
+    access: {
+        name: '接入交换机',
+        ids: ['NXBHZY_102_-7-B-09/10-42U_25Gnei_ACC01', 'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02', 'NXBHZY_103_1B-09/10-34U_25Gnei_ACC03'],
+        alias: {
+            'NXBHZY_102_-7-B-09/10-42U_25Gnei_ACC01': '接入1',
+            'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02': '接入2',
+            'NXBHZY_103_1B-09/10-34U_25Gnei_ACC03': '接入3'
+        },
+        y: 20
+    }
+};
+
+let network, networkData, nodeMap, nodes, edges;
+let specialLineDownMap = { acc02: false };
+
+// 检查互联端口是否DOWN
+function hasDownInterPort(node) {
+    if (!node || !node.ports) return false;
+    // 防火墙-主：端口状态与设备状态一致（设备UP则端口全UP；设备DOWN则端口全DOWN）
+    if (node.id === FIREWALL_ID || node.id === FIREWALL_BACKUP_ID) {
+        return node.status !== 0;
+    }
+    return node.ports.some(p => {
+        const portUp = p.status === 1 || (p.transmit > 0 || p.receive > 0);
+        return !portUp;
+    });
+}
+
+// 获取节点图标
+function getNodeIconWithInterPort(d) {
+    // 防火墙节点专用图标
+    if (d.id === FIREWALL_ID || d.id === FIREWALL_BACKUP_ID) {
+        return d.status === 0 ? 'web/firewall.png' : 'web/core-bad.png';
+    }
+    if (d.status !== 0) {
+        if (d.id.includes('25Gnei_AGG01') || d.id.includes('25Gnei_AGG02')) {
+            return 'web/core-bad.png';
+        }
+        return 'web/sw-bad.png';
+    }
+    if (hasDownInterPort(d)) {
+        if (d.id.includes('25Gnei_AGG01') || d.id.includes('25Gnei_AGG02')) {
+            return 'web/core-bad.png';
+        }
+        return 'web/sw-bad.png';
+    }
+    if (d.id.includes('25Gnei_AGG01') || d.id.includes('25Gnei_AGG02')) {
+        return 'web/core.png';
+    }
+    return 'web/sw.png';
+}
+
+// 获取连线颜色
+function getLinkColorWithInterPort(d, nodeMap) {
+    const srcNode = nodeMap.get(d.from);
+    const tgtNode = nodeMap.get(d.to);
+    const key = makeUndirectedKey(d.from, d.to);
+    const rawLinks = linkMap.get(key) || [];
+    // 特例：防火墙-备的连线仅按设备状态与利用率着色，不依据端口DOWN
+    if (d.from === FIREWALL_BACKUP_ID || d.to === FIREWALL_BACKUP_ID) {
+        const downByDevice = (!!srcNode && srcNode.status !== 0) || (!!tgtNode && tgtNode.status !== 0);
+        if (downByDevice) return '#ff4d4d';
+        const srcUtil = srcNode ? calcUtil(srcNode.transmit||0, srcNode.receive||0,
+            (srcNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+        const tgtUtil = tgtNode ? calcUtil(tgtNode.transmit||0, tgtNode.receive||0,
+            (tgtNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+        const maxUtil = Math.max(srcUtil, tgtUtil);
+        return (maxUtil > 20) ? '#ffd166' : '#00ff9d';
+    }
+    let down = false;
+    if (rawLinks.length === 0) {
+        // 无端口信息时，仅以设备状态为准
+        down = (!!srcNode && srcNode.status !== 0) || (!!tgtNode && tgtNode.status !== 0);
+    } else {
+        const seen = new Set();
+        for (const rec of rawLinks) {
+            const oriented = (rec.source === d.from && rec.target === d.to)
+                ? rec
+                : { source: rec.target, sourcePort: rec.targetPort, target: rec.source, targetPort: rec.sourcePort };
+            const a = `${oriented.source}|${oriented.sourcePort}`;
+            const b = `${oriented.target}|${oriented.targetPort}`;
+            const undirectedPairId = a < b ? `${a}__${b}` : `${b}__${a}`;
+            if (seen.has(undirectedPairId)) continue;
+            seen.add(undirectedPairId);
+            const srcPort = findPortByName(srcNode, oriented.sourcePort);
+            const tgtPort = findPortByName(tgtNode, oriented.targetPort);
+            let srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
+            let tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+            // 防火墙主/备：端口状态与设备状态一致
+            if (srcNode && (srcNode.id === FIREWALL_ID || srcNode.id === FIREWALL_BACKUP_ID)) srcUp = (srcNode.status === 0);
+            if (tgtNode && (tgtNode.id === FIREWALL_ID || tgtNode.id === FIREWALL_BACKUP_ID)) tgtUp = (tgtNode.status === 0);
+            if (!srcUp || !tgtUp) { down = true; break; }
+        }
+    }
+    if (down) return '#ff4d4d';
+    // 未DOWN时按利用率着色
+    const srcUtil = srcNode ? calcUtil(srcNode.transmit||0, srcNode.receive||0,
+        (srcNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+    const tgtUtil = tgtNode ? calcUtil(tgtNode.transmit||0, tgtNode.receive||0,
+        (tgtNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+    const maxUtil = Math.max(srcUtil, tgtUtil);
+    return (maxUtil > 20) ? '#ffd166' : '#00ff9d';
+}
+
+// 加载拓扑数据并渲染
+// 记录初始视图（中心与缩放）
+let initialView = null;
+// 全局控制：设备名称与设备图标的垂直间距
+const USE_GLOBAL_LABEL_VADJUST = true;
+const LABEL_VADJUST = -6;
+
+// 绑定拓扑重置按钮
+(function bindResetButton() {
+    const btn = document.getElementById('reset-topo');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        if (!network) return;
+        if (initialView) {
+            network.moveTo({
+                position: initialView.position,
+                scale: initialView.scale,
+                animation: { duration: 600, easing: 'easeInOutQuad' }
+            });
+        } else {
+            network.fit({ animation: { duration: 600, easing: 'easeInOutQuad' } });
+        }
+    });
+})();
+
+async function loadTopology() {
+    try {
+        await loadLinkInfo();
+
+        const res = await fetch('topology-debug.json');
+        const data = await res.json();
+        if (!data || !data.nodes) {
+            console.error("Topology JSON 数据无效");
+            return;
+        }
+
+        nodes = (data.nodes || []).filter(d => d && d.id);
+        nodeMap = new Map(nodes.map(d => [d.id, d]));
+        edges = (data.edges || []).filter(d => d && d.source && d.target)
+            .map(d => {
+                const srcId = d.source.split(':')[0];
+                const tgtId = d.target.split(':')[0];
+                if (!nodeMap.has(srcId) || !nodeMap.has(tgtId)) return null;
+                const sourceNode = nodeMap.get(srcId);
+                const targetNode = nodeMap.get(tgtId);
+                return {
+                    from: srcId,
+                    to: tgtId,
+                    label: d.label,
+                    transmit: d.transmit || 0,
+                    receive: d.receive || 0,
+                    status: sourceNode.status === 0 && targetNode.status === 0 ? 0 : 1,
+                    transmit_percent: d.transmit_percent || 0,
+                    receive_percent: d.receive_percent || 0
+                };
+            }).filter(d => d != null);
+
+        // 手动添加核心交换1与核心交换2之间的链路
+        const core1Id = 'NXBHZY_102_7-B-05-46U_25Gnei_AGG01';
+        const core2Id = 'NXBHZY_102_-7-B-07-46U_25Gnei_AGG02';
+        if (nodeMap.has(core1Id) && nodeMap.has(core2Id)) {
+            const core1 = nodeMap.get(core1Id);
+            const core2 = nodeMap.get(core2Id);
+            const maxTx = Math.max(core1.transmit || 0, core2.transmit || 0);
+            const maxRx = Math.max(core1.receive || 0, core2.receive || 0);
+            const util = calcUtil(maxTx, maxRx, 1);
+            edges.push({
+                from: core1Id,
+                to: core2Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: core1.status === 0 && core2.status === 0 ? 0 : 1,
+                transmit_percent: util,
+                receive_percent: util
+            });
+        }
+
+        // 每台接入交换机分别双上联到两台核心交换机
+        const accessIds = [
+            'NXBHZY_102_-7-B-09/10-42U_25Gnei_ACC01',
+            'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02',
+            'NXBHZY_103_1B-09/10-34U_25Gnei_ACC03'
+        ];
+
+        accessIds.forEach(accId => {
+            if (!nodeMap.has(accId)) return;
+            const accNode = nodeMap.get(accId);
+            [core1Id, core2Id].forEach(coreId => {
+                if (!nodeMap.has(coreId)) return;
+                    const coreNode = nodeMap.get(coreId);
+                    const maxTx = Math.max(accNode.transmit || 0, coreNode.transmit || 0);
+                    const maxRx = Math.max(accNode.receive || 0, coreNode.receive || 0);
+                    const util = calcUtil(maxTx, maxRx, 1);
+                    edges.push({
+                        from: accId,
+                        to: coreId,
+                        label: '',
+                        transmit: maxTx,
+                        receive: maxRx,
+                        status: accNode.status === 0 && coreNode.status === 0 ? 0 : 1,
+                        transmit_percent: util,
+                        receive_percent: util
+                    });
+            });
+        });
+
+        // === 新增：带外-网络设备分别与 带外-交换1、带外-交换2 互联 ===
+        const oob1Id = 'NXBHZY_102_-7-B-10-36U_PCOOB_ACC2'; // 带外-交换1
+        const oob2Id = 'NXBHZY_103_1B-08_PCOOB_ACC3';       // 带外-交换2
+        const oobDevId = 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1'; // 带外-网络设备
+
+        // 带外-网络设备 ↔ 带外-交换1
+        if (nodeMap.has(oobDevId) && nodeMap.has(oob1Id)) {
+            const dev = nodeMap.get(oobDevId);
+            const oob1 = nodeMap.get(oob1Id);
+            const maxTx = Math.max(dev.transmit || 0, oob1.transmit || 0);
+            const maxRx = Math.max(dev.receive || 0, oob1.receive || 0);
+            const util = calcUtil(maxTx, maxRx, 1);
+            edges.push({
+                from: oobDevId,
+                to: oob1Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: dev.status === 0 && oob1.status === 0 ? 0 : 1,
+                transmit_percent: util,
+                receive_percent: util
+            });
+        }
+
+        // 带外-网络设备 ↔ 带外-交换2
+        if (nodeMap.has(oobDevId) && nodeMap.has(oob2Id)) {
+            const dev = nodeMap.get(oobDevId);
+            const oob2 = nodeMap.get(oob2Id);
+            const maxTx = Math.max(dev.transmit || 0, oob2.transmit || 0);
+            const maxRx = Math.max(dev.receive || 0, oob2.receive || 0);
+            const util = calcUtil(maxTx, maxRx, 1);
+            edges.push({
+                from: oobDevId,
+                to: oob2Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: dev.status === 0 && oob2.status === 0 ? 0 : 1,
+                transmit_percent: util,
+                receive_percent: util
+            });
+        }
+
+        // === 新增：防火墙-主（顶层独立，状态来自 topology-debug.json） ===
+        const fwFromJson = nodeMap.get(FIREWALL_ID);
+        const firewallNode = fwFromJson ? {
+            ...fwFromJson,
+            label: FIREWALL_ALIAS
+        } : {
+            id: FIREWALL_ID,
+            label: FIREWALL_ALIAS,
+            status: 0,
+            ip: FIREWALL_IP,
+            transmit: 0,
+            receive: 0,
+            transmit_percent: 0,
+            receive_percent: 0,
+            ports: []
+        };
+        if (!fwFromJson) {
+            nodeMap.set(FIREWALL_ID, firewallNode);
+            nodes.push(firewallNode);
+        } else {
+            nodeMap.set(FIREWALL_ID, firewallNode);
+        }
+
+    // 防火墙连线：仅与 带外-交换1、带外-网络设备、核心聚合 互联
+    const firewallPeers = [
+        'NXBHZY_102_-7-B-09-36U_SW00B_ACC1', // 带外-网络设备
+        'NXBHZY_102_-7-B-10-36U_PCOOB_ACC2', // 带外-交换1
+        'NXBHZY_102_-7-B-09/10-42U_Public_AGG01' // 核心聚合01
+    ];
+    firewallPeers.forEach(peerId => {
+        if (!nodeMap.has(peerId)) return;
+        const peer = nodeMap.get(peerId);
+        const maxTx = Math.max(firewallNode.transmit || 0, peer.transmit || 0);
+        const maxRx = Math.max(firewallNode.receive || 0, peer.receive || 0);
+        const util = calcUtil(maxTx, maxRx, 1);
+        edges.push({
+            from: FIREWALL_ID,
+            to: peerId,
+            label: '',
+            transmit: maxTx,
+            receive: maxRx,
+            status: firewallNode.status === 0 && peer.status === 0 ? 0 : 1,
+            transmit_percent: util,
+            receive_percent: util
+        });
+    });
+
+    // 新增：防火墙-备（顶层独立，固定UP，端口UP，其它数据留空）
+    const firewallBackupNode = {
+        id: FIREWALL_BACKUP_ID,
+        label: FIREWALL_BACKUP_ALIAS,
+        status: 0,
+        ip: '172.16.202.2',
+        transmit: 0,
+        receive: 0,
+        transmit_percent: 0,
+        receive_percent: 0,
+        ports: []
+    };
+    nodeMap.set(FIREWALL_BACKUP_ID, firewallBackupNode);
+    nodes.push(firewallBackupNode);
+
+
+        const visNodes = [];
+        const addedIds = new Set();
+
+        // 按分组布局节点
+        Object.entries(groups).forEach(([key, grp]) => {
+            const count = grp.ids.length;
+            const startX = -(count - 1) * 300 / 2;
+            grp.ids.forEach((id, idx) => {
+                const d = nodeMap.get(id);
+                if (!d || addedIds.has(d.id)) return;
+                addedIds.add(d.id);
+                const alias = grp.alias[id];
+                visNodes.push({
+                    id: d.id,
+                    label: alias ? alias : (d.label || d.id),
+                    shape: 'image',
+                    image: getNodeIconWithInterPort(d),
+                    size: 40,
+                    x: startX + idx * 300,
+                    y: grp.y,
+                    fixed: { x: false, y: false },
+                    status: d.status,
+                    ip: d.ip || '',
+                    transmit: d.transmit || 0,
+                    receive: d.receive || 0,
+                    transmit_percent: d.transmit_percent || 0,
+                    receive_percent: d.receive_percent || 0,
+                    ports: d.ports || [],
+                    font: {
+                        color: (d.status === 0 && !hasDownInterPort(d)) ? '#ffffff' : '#ff4d4d',
+                        size: 14,
+                        bold: true,
+                        strokeWidth: 3,
+                        strokeColor: '#0a1120',
+                        vadjust: (USE_GLOBAL_LABEL_VADJUST ? LABEL_VADJUST : 1)
+                    }
+                });
+            });
+        });
+
+        // 防火墙可视节点（置于最顶层，缩小上下间距，并提升文字可视性）
+        visNodes.push({
+            id: FIREWALL_ID,
+            label: FIREWALL_ALIAS,
+            shape: 'image',
+            image: getNodeIconWithInterPort(firewallNode),
+            size: 40,
+            x: 0,
+            y: -420,
+            fixed: { x: false, y: false },
+            status: firewallNode.status,
+            ip: firewallNode.ip,
+            transmit: 0,
+            receive: 0,
+            transmit_percent: 0,
+            receive_percent: 0,
+            ports: [],
+            font: {
+                color: firewallNode.status === 0 ? '#ffffff' : '#ff4d4d',
+                size: 14,
+                bold: true,
+                strokeWidth: 3,
+                strokeColor: '#0a1120',
+                vadjust: (USE_GLOBAL_LABEL_VADJUST ? LABEL_VADJUST : -5)
+            }
+        });
+
+        // 防火墙-备可视节点（同主防火墙样式，固定UP）
+        visNodes.push({
+            id: FIREWALL_BACKUP_ID,
+            label: FIREWALL_BACKUP_ALIAS,
+            shape: 'image',
+            image: getNodeIconWithInterPort(nodeMap.get(FIREWALL_BACKUP_ID)),
+            size: 40,
+            x: 0,
+            y: -420,
+            fixed: { x: false, y: false },
+            status: nodeMap.get(FIREWALL_BACKUP_ID).status,
+            ip: nodeMap.get(FIREWALL_BACKUP_ID).ip,
+            transmit: 0,
+            receive: 0,
+            transmit_percent: 0,
+            receive_percent: 0,
+            ports: [],
+            font: {
+                color: (nodeMap.get(FIREWALL_BACKUP_ID).status === 0) ? '#ffffff' : '#ff4d4d',
+                size: 14,
+                bold: true,
+                strokeWidth: 3,
+                strokeColor: '#0a1120',
+                vadjust: (USE_GLOBAL_LABEL_VADJUST ? LABEL_VADJUST : -5)
+            }
+        });
+
+        // === 专线节点和连线 ===
+        const sw00bAcc1Id = 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1';
+        const acc02Id = 'NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02';
+        const publicAgg01Id = 'NXBHZY_102_-7-B-09/10-42U_Public_AGG01';
+
+        // 计算相对位置（根据实际节点Y轴）
+        let sw00bY = -600, acc02Y = 600;
+        const sw00bNode = visNodes.find(n => n.id === sw00bAcc1Id);
+        const acc02Node = visNodes.find(n => n.id === acc02Id);
+        // 将偏移长度缩小到原来的30%
+        if (sw00bNode) sw00bY = sw00bNode.y - 75;
+        // 接入2 专线长度延长10%（75 -> 83）
+        // 接入2 专线长度再延长10%（83 -> 91）
+        if (acc02Node) acc02Y = acc02Node.y + 91;
+        
+
+        // 专线节点（仅保留接入2）
+        visNodes.push({
+            id: 'special-line-acc02',
+            label: '专线',
+            shape: 'box',
+            color: { background: '#00e5ff', border: '#00e5ff' },
+            font: { color: '#ffffff', size: 14 },
+            x: acc02Node ? acc02Node.x : 0,
+            y: acc02Y,
+            fixed: true
+        });
+
+        // 防火墙-备连线：与 防火墙-主 / 公网汇聚交换机 / 带外-网络设备 / 带外-交换1 互联
+        const fwBackupPeers = [FIREWALL_ID, publicAgg01Id, sw00bAcc1Id, 'NXBHZY_102_-7-B-10-36U_PCOOB_ACC2'];
+        fwBackupPeers.forEach(peerId => {
+            if (!nodeMap.has(peerId)) return;
+            const peer = nodeMap.get(peerId);
+            const maxTx = Math.max(peer.transmit || 0, firewallBackupNode.transmit || 0);
+            const maxRx = Math.max(peer.receive || 0, firewallBackupNode.receive || 0);
+            const util = calcUtil(maxTx, maxRx, 1);
+            edges.push({
+                from: FIREWALL_BACKUP_ID,
+                to: peerId,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: firewallBackupNode.status === 0 && peer.status === 0 ? 0 : 1,
+                transmit_percent: util,
+                receive_percent: util
+            });
+        });
+
+        // --- 专线连线 ---
+        const visEdges = edges.map(d => ({
+            id: `${d.from}-${d.to}`,
+            from: d.from,
+            to: d.to,
+            width: 3,
+            color: {
+                color: getLinkColorWithInterPort(d, nodeMap),
+                highlight: '#ffffff'
+            },
+            smooth: false,
+            transmit: d.transmit,
+            receive: d.receive,
+            status: d.status
+        }));
+
+        // --- 专线虚线连接 ---
+        visEdges.push(
+            {
+                from: acc02Id,
+                to: 'special-line-acc02',
+                width: 2,
+                color: { color: '#00e5ff', highlight: '#ffffff' },
+                smooth: false,
+                dashes: true,
+                lineGroup: 'acc02'
+            }
+        );
+
+        // 布局：防火墙主与备同一行居中等距
+const fwMainIndex = visNodes.findIndex(n => n.id === FIREWALL_ID);
+const fwBackupIndex = visNodes.findIndex(n => n.id === FIREWALL_BACKUP_ID);
+if (fwMainIndex !== -1) {
+    visNodes[fwMainIndex].x = -144; // 主在左，间距增加20%（原120→144）
+    visNodes[fwMainIndex].y = -420;
+    visNodes[fwMainIndex].fixed = { x: false, y: false }; // 允许拖动
+    visNodes[fwMainIndex].image = getNodeIconWithInterPort(visNodes[fwMainIndex]);
+}
+if (fwBackupIndex !== -1) {
+    visNodes[fwBackupIndex].x = 144; // 备在右，间距增加20%（原120→144）
+    visNodes[fwBackupIndex].y = -420;
+    visNodes[fwBackupIndex].fixed = { x: false, y: false }; // 允许拖动
+    visNodes[fwBackupIndex].image = getNodeIconWithInterPort(visNodes[fwBackupIndex]);
+}
+
+        // --- 渲染拓扑 ---
+        const container = document.getElementById('topo-canvas');
+        networkData = {
+            nodes: new vis.DataSet(visNodes),
+            edges: new vis.DataSet(visEdges)
+        };
+
+        const options = {
+            physics: { enabled: false },
+            interaction: { hover: true, selectConnectedEdges: false, dragNodes: true },
+            nodes: {
+                borderWidth: 0,
+                chosen: { node: (v) => { v.size = 50; } }
+            },
+            edges: {
+                smooth: false,
+                chosen: { edge: false }
+            }
+        };
+
+        network = new vis.Network(container, networkData, options);
+        // 暴露到全局，便于调试或后续扩展使用
+        window.network = network;
+        // 记录初始视图（用于一键重置）
+        initialView = {
+            position: network.getViewPosition(),
+            scale: network.getScale()
+        };
+
+        // 辅助：判断某条边是否存在互联端口DOWN（以 links.json 的端口对为准）
+        function edgeHasDownInterPort(edge, nodeMap) {
+            const key = makeUndirectedKey(edge.from, edge.to);
+            const rawLinks = linkMap.get(key) || [];
+            // 特例：防火墙-备的边不依据端口DOWN，仅当设备自身DOWN时判定
+            if (edge.from === FIREWALL_BACKUP_ID || edge.to === FIREWALL_BACKUP_ID) {
+                const srcNode = nodeMap.get(edge.from);
+                const tgtNode = nodeMap.get(edge.to);
+                const backupDown = ((srcNode && srcNode.id === FIREWALL_BACKUP_ID && srcNode.status !== 0) ||
+                                    (tgtNode && tgtNode.id === FIREWALL_BACKUP_ID && tgtNode.status !== 0));
+                return backupDown;
+            }
+            if (rawLinks.length === 0) {
+                // 无端口信息时，仅以设备状态为准，不因其它端口DOWN误报
+                const srcNode = nodeMap.get(edge.from);
+                const tgtNode = nodeMap.get(edge.to);
+                return !!(srcNode && srcNode.status !== 0 || tgtNode && tgtNode.status !== 0);
+            }
+            const srcNode = nodeMap.get(edge.from);
+            const tgtNode = nodeMap.get(edge.to);
+            const seen = new Set();
+            for (const rec of rawLinks) {
+                // 规整方向为 from→to
+                const oriented = (rec.source === edge.from && rec.target === edge.to)
+                    ? rec
+                    : { source: rec.target, sourcePort: rec.targetPort, target: rec.source, targetPort: rec.sourcePort };
+                const a = `${oriented.source}|${oriented.sourcePort}`;
+                const b = `${oriented.target}|${oriented.targetPort}`;
+                const undirectedPairId = a < b ? `${a}__${b}` : `${b}__${a}`;
+                if (seen.has(undirectedPairId)) continue;
+                seen.add(undirectedPairId);
+                const srcPort = findPortByName(srcNode, oriented.sourcePort);
+                const tgtPort = findPortByName(tgtNode, oriented.targetPort);
+                let srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
+                let tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+                // 防火墙主/备：端口状态与设备状态一致
+                if (srcNode && (srcNode.id === FIREWALL_ID || srcNode.id === FIREWALL_BACKUP_ID)) srcUp = (srcNode.status === 0);
+                if (tgtNode && (tgtNode.id === FIREWALL_ID || tgtNode.id === FIREWALL_BACKUP_ID)) tgtUp = (tgtNode.status === 0);
+                if (!srcUp || !tgtUp) return true;
+            }
+            return false;
+        }
+
+        // 处理设备DOWN状态和连线闪烁效果（颜色浅深与透明度交替）
+        function updateDownEffects() {
+            if (!nodes || !networkData) return;
+            // 更新连线闪烁效果：只要该边的任一互联端口为DOWN，则红色闪烁
+            visEdges.forEach(edge => {
+                const isSpecialGroupDown = edge.lineGroup && specialLineDownMap && specialLineDownMap[edge.lineGroup];
+                const down = isSpecialGroupDown ? true : edgeHasDownInterPort(edge, nodeMap);
+                if (down) {
+                    edge.color = { color: blink ? '#ff0000' : '#ff6666', highlight: '#ffffff' };
+                } else {
+                    // 恢复正常颜色（含防火墙特殊逻辑与利用率着色）
+                    const normalColor = edge.lineGroup ? '#00e5ff' : getLinkColorWithInterPort(edge, nodeMap);
+                    edge.color = { color: normalColor, highlight: '#ffffff' };
+                }
+            });
+            networkData.edges.update(visEdges);
+        }
+
+        // 暴露更新函数用于外部触发
+        window.updateDownEffects = updateDownEffects;
+
+        // 初始化和定期更新（边闪烁）
+        let blink = true;
+        updateDownEffects();
+        setInterval(() => {
+            blink = !blink;
+            updateDownEffects();
+        }, 600); // 0.6s 闪烁
+
+        // 闪烁状态控制（节点透明度闪烁）：仅对DOWN或存在端口DOWN的节点闪烁，UP节点保持不闪烁
+        setInterval(() => {
+            (nodes || []).forEach(n => {
+                const isDown = (n.status !== 0) || hasDownInterPort(n);
+                const targetOpacity = isDown ? (blink ? 1 : 0.4) : 1;
+                const node = networkData.nodes.get(n.id);
+                if (node) {
+                    networkData.nodes.update({ id: n.id, opacity: targetOpacity });
+                }
+            });
+        }, 500); // 0.5s 闪烁
+
+        // 统一点击优先级：空白→概览，节点→设备信息与端口，专线→专线信息，普通链路→链路信息
+        network.on('click', function(params) {
+            const hasNode = params.nodes && params.nodes.length > 0;
+            const hasEdge = params.edges && params.edges.length > 0;
+
+            // 空白区域：显示集群整体信息
+            if (!hasNode && !hasEdge) {
+                showOverview(nodes);
+                return;
+            }
+
+            // 节点优先：显示设备整体信息与端口信息
+            if (hasNode) {
+                const nodeId = params.nodes[0];
+                // 专线设备为虚拟节点，点击时展示专线信息
+                if (nodeId === 'special-line-acc02') {
+                    showDeviceSpecialLines('NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02');
+                    return;
+                }
+                const node = networkData.nodes.get(nodeId);
+                if (node) {
+                    showDeviceInfo(node);
+                } else {
+                    showOverview(nodes);
+                }
+                return;
+            }
+
+            // 专线（低于设备图标优先级）：带有 dashes/lineGroup 的边显示专线信息
+            if (hasEdge) {
+                const edge = networkData.edges.get(params.edges[0]);
+                if (edge && (edge.dashes || edge.lineGroup)) {
+                    if (edge.lineGroup === 'acc02') {
+                        showDeviceSpecialLines('NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02');
+                    } else if (edge) {
+                        // 非接入2的虚线已移除；其余按普通链路处理
+                        showLinkInfo(edge);
+                    }
+                } else if (edge) {
+                    // 普通链路（优先级最低）：显示链路信息
+                    showLinkInfo(edge);
+                } else {
+                    showOverview(nodes);
+                }
+            }
+        });
+        showOverview(nodes);
+
+        console.log('拓扑加载完成：节点', visNodes.length, '边', visEdges.length);
+    } catch (e) {
+        console.error('加载拓扑失败:', e);
+    }
+}
+
+// 定时任务：监控数据与拓扑数据每3分钟更新
+setInterval(async () => {
+    // 刷新告警列表
+    if (nodes) await renderAlarmList(nodes);
+}, 3 * 60 * 1000);
+
+setInterval(() => {
+    // 重新加载拓扑数据
+    loadTopology();
+}, 3 * 60 * 1000);
+
+// 专线状态轮询（每5秒）：读取 prometheus.json，更新专线组闪烁与告警列表
+setInterval(async () => {
+    try {
+        await loadLocalPrometheusLines();
+        const anyDown = (localPromData.lines || []).some(l => {
+            const s = l.status;
+            const statusStr = typeof s === 'string' ? s.toLowerCase() : s;
+            return statusStr === 'down' || statusStr === 1 || statusStr === '1';
+        });
+        specialLineDownMap['acc02'] = anyDown;
+        if (window.updateDownEffects) {
+            window.updateDownEffects();
+        }
+        // 若概览界面可见，刷新监控告警表
+        const alarmList = document.getElementById('alarm-list');
+        if (alarmList && nodes) {
+            await renderAlarmList(nodes);
+        }
+    } catch (e) {
+        console.warn('专线状态轮询失败:', e);
+    }
+}, 5000);
+
+// 每3分钟重新读取并更新数据
+setInterval(async () => {
+    try {
+        // 重新加载链路信息
+        await loadLinkInfo();
+
+        // 重新加载拓扑数据
+        const res = await fetch('topology-debug.json');
+        const data = await res.json();
+        if (!data || !data.nodes) {
+            console.error("Topology JSON 数据无效");
+            return;
+        }
+
+        // 更新节点数据
+        const newNodes = (data.nodes || []).filter(d => d && d.id);
+        const newNodeMap = new Map(newNodes.map(d => [d.id, d]));
+
+        // 更新节点状态
+        if (networkData && networkData.nodes) {
+            newNodes.forEach(node => {
+                const existingNode = networkData.nodes.get(node.id);
+                if (existingNode) {
+                    // 更新节点属性
+                    networkData.nodes.update({
+                        id: node.id,
+                        status: node.status,
+                        ip: node.ip || '',
+                        transmit: node.transmit || 0,
+                        receive: node.receive || 0,
+                        transmit_percent: node.transmit_percent || 0,
+                        receive_percent: node.receive_percent || 0,
+                        ports: node.ports || [],
+                        image: getNodeIconWithInterPort(node), // 使用新图标逻辑
+                        font: {
+                            color: (node.status === 0 && !hasDownInterPort(node)) ? '#ffffff' : '#ff4d4d',
+                            size: 14,
+                            bold: true,
+                            vadjust: (USE_GLOBAL_LABEL_VADJUST ? LABEL_VADJUST : ((node.id === FIREWALL_ID || node.id === FIREWALL_BACKUP_ID) ? -5 : 3))
+                        }
+                    });
+                }
+            });
+        }
+
+        // 更新边数据
+        const newEdges = (data.edges || []).filter(d => d && d.source && d.target)
+            .map(d => {
+                const srcId = d.source.split(':')[0];
+                const tgtId = d.target.split(':')[0];
+                if (!newNodeMap.has(srcId) || !newNodeMap.has(tgtId)) return null;
+                const sourceNode = newNodeMap.get(srcId);
+                const targetNode = newNodeMap.get(tgtId);
+                return {
+                    from: srcId,
+                    to: tgtId,
+                    label: d.label,
+                    transmit: d.transmit || 0,
+                    receive: d.receive || 0,
+                    status: sourceNode.status === 0 && targetNode.status === 0 ? 0 : 1,
+                    transmit_percent: d.transmit_percent || 0,
+                    receive_percent: d.receive_percent || 0
+                };
+            }).filter(d => d != null);
+
+        // 追加：带外衍生链路（与初始构建逻辑保持一致：网络设备连到交换1和交换2）
+        const oob1Id = 'NXBHZY_102_-7-B-10-36U_PCOOB_ACC2';
+        const oob2Id = 'NXBHZY_103_1B-08_PCOOB_ACC3';
+        const oobDevId = 'NXBHZY_102_-7-B-09-36U_SW00B_ACC1';
+
+        if (newNodeMap.has(oobDevId) && newNodeMap.has(oob1Id)) {
+            const dev = newNodeMap.get(oobDevId);
+            const oob1 = newNodeMap.get(oob1Id);
+            const maxTx = Math.max(dev.transmit || 0, oob1.transmit || 0);
+            const maxRx = Math.max(dev.receive || 0, oob1.receive || 0);
+            newEdges.push({
+                from: oobDevId,
+                to: oob1Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: dev.status === 0 && oob1.status === 0 ? 0 : 1,
+                transmit_percent: 0,
+                receive_percent: 0
+            });
+        }
+
+        if (newNodeMap.has(oobDevId) && newNodeMap.has(oob2Id)) {
+            const dev = newNodeMap.get(oobDevId);
+            const oob2 = newNodeMap.get(oob2Id);
+            const maxTx = Math.max(dev.transmit || 0, oob2.transmit || 0);
+            const maxRx = Math.max(dev.receive || 0, oob2.receive || 0);
+            newEdges.push({
+                from: oobDevId,
+                to: oob2Id,
+                label: '',
+                transmit: maxTx,
+                receive: maxRx,
+                status: dev.status === 0 && oob2.status === 0 ? 0 : 1,
+                transmit_percent: 0,
+                receive_percent: 0
+            });
+        }
+
+        // 更新边状态
+        if (networkData && networkData.edges) {
+            newEdges.forEach(edge => {
+                const existingEdge = networkData.edges.get(`${edge.from}-${edge.to}`);
+                if (existingEdge) {
+                    networkData.edges.update({
+                        id: `${edge.from}-${edge.to}`,
+                        status: edge.status,
+                        transmit: edge.transmit,
+                        receive: edge.receive,
+                        color: {
+                            color: getLinkColorWithInterPort(edge, newNodeMap), // 使用新连线颜色逻辑
+                            highlight: '#ffffff'
+                        }
+                    });
+                }
+            });
+        }
+
+        // 更新防火墙状态并刷新节点与连线（状态来自 topology-debug.json）
+        const firewallNodeNew = newNodeMap.get(FIREWALL_ID) || null;
+        if (firewallNodeNew && networkData && networkData.nodes && networkData.nodes.get(FIREWALL_ID)) {
+            networkData.nodes.update({
+                id: FIREWALL_ID,
+                status: firewallNodeNew.status,
+                ip: firewallNodeNew.ip || FIREWALL_IP,
+                image: getNodeIconWithInterPort(firewallNodeNew),
+                font: {
+                    color: firewallNodeNew.status === 0 ? '#ffffff' : '#ff4d4d',
+                    size: 14,
+                    bold: true,
+                    vadjust: (USE_GLOBAL_LABEL_VADJUST ? LABEL_VADJUST : -5)
+                }
+            });
+        }
+
+        // 同步更新防火墙-备（若 topology-debug.json 提供或保持现状），并固定标签贴近
+        const firewallBackupNodeNew = newNodeMap.get(FIREWALL_BACKUP_ID) || null;
+        if (networkData && networkData.nodes && networkData.nodes.get(FIREWALL_BACKUP_ID)) {
+            const backupStatus = firewallBackupNodeNew ? firewallBackupNodeNew.status : 0;
+            const backupIp = firewallBackupNodeNew ? (firewallBackupNodeNew.ip || '172.16.202.2') : (nodeMap.get(FIREWALL_BACKUP_ID)?.ip || '172.16.202.2');
+            const backupNodeForIcon = firewallBackupNodeNew || nodeMap.get(FIREWALL_BACKUP_ID);
+            networkData.nodes.update({
+                id: FIREWALL_BACKUP_ID,
+                status: backupStatus,
+                ip: backupIp,
+                image: getNodeIconWithInterPort(backupNodeForIcon),
+                font: {
+                    color: backupStatus === 0 ? '#ffffff' : '#ff4d4d',
+                    size: 14,
+                    bold: true,
+                    vadjust: (USE_GLOBAL_LABEL_VADJUST ? LABEL_VADJUST : -5)
+                }
+            });
+        }
+
+        // 刷新防火墙连线状态（仅与 带外-交换1、带外-网络设备、核心聚合）
+        ['NXBHZY_102_-7-B-09-36U_SW00B_ACC1','NXBHZY_102_-7-B-10-36U_PCOOB_ACC2','NXBHZY_102_-7-B-09/10-42U_Public_AGG01'].forEach(peerId => {
+            if (!newNodeMap.has(peerId)) return;
+            const peer = newNodeMap.get(peerId);
+            const edgeId = `${FIREWALL_ID}-${peerId}`;
+            const existingEdge = networkData && networkData.edges && networkData.edges.get(edgeId);
+            if (existingEdge) {
+                const edgeObj = {
+                    from: FIREWALL_ID,
+                    to: peerId,
+                    transmit: Math.max(firewallNodeNew.transmit || 0, peer.transmit || 0),
+                    receive: Math.max(firewallNodeNew.receive || 0, peer.receive || 0),
+                    status: peer.status === 0 ? 0 : 1,
+                    transmit_percent: 0,
+                    receive_percent: 0
+                };
+                networkData.edges.update({
+                    id: edgeId,
+                    status: edgeObj.status,
+                    transmit: edgeObj.transmit,
+                    receive: edgeObj.receive,
+                    color: {
+                        color: getLinkColorWithInterPort(edgeObj, newNodeMap),
+                        highlight: '#ffffff'
+                    }
+                });
+            }
+        });
+
+        // 更新全局变量
+        nodes = newNodes;
+        nodeMap = newNodeMap;
+        edges = newEdges;
+
+        // 重新渲染告警列表
+        await renderAlarmList(nodes);
+
+        console.log('数据更新成功');
+    } catch (e) {
+        console.error('数据更新失败:', e);
+        // 不影响当前数据展示
+    }
+}, 3 * 60 * 1000);
+
+loadTopology();
+</script>
+</body>
+</html>
+

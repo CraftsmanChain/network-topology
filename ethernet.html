@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>以太网拓扑</title>
+    <style>
+      body { background:#111826; color:#fff; font-family:-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif; }
+      .center { display:flex; align-items:center; justify-content:center; min-height:100vh; flex-direction:column; gap:12px; }
+      a { color:#00e5ff; text-decoration:none; }
+    </style>
+  </head>
+  <body>
+    <div class="center">
+      <div>正在打开以太网拓扑视图…</div>
+      <div><a href="/">若未跳转，点击进入拓扑</a></div>
+    </div>
+    <script>
+      // 以太网拓扑：设置本地 profile 并跳转到拓扑页
+      try { localStorage.setItem('active_topology', 'ethernet'); } catch (e) {}
+      try { window.location.replace('/?profile=ethernet'); } catch (e) { window.location.href = '/?profile=ethernet'; }
+    </script>
+  </body>
+</html>

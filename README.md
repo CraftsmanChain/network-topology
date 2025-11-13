@@ -1,93 +1,91 @@
-# Topology
+# 集群拓扑监控（web）
 
+- 静态前端配合轻量后端，展示与管理网络/集群拓扑，支持多拓扑多集群。
+- 支持管理员登录与在线编辑配置，历史快照与回滚。
+- 数据统一到 Prometheus 获取指标生成设备与链路数据（默认5分钟更新数据），可方便接入现有集群监控。
 
+## 目录结构
+- `server/` 后端服务（Gin），提供静态资源与配置 API
+- `cmd/` 数据采集脚本：
+  - `cmd/lldp.go` 基于 LLDP 指标生成 `links.json` 并增量维护 `devices.json`
+  - `cmd/snmp.py` 基于 SNMP/流量指标生成 `topology.json`
+- `config/` 配置文件与示例（受保护写入）
+  - `.users.local` 两行明文：第1行用户名，第2行密码
+  - `group_rules.json`、`topology_config.json`/`topology.config.json`、`positions.json`、`link_overrides.json`
+  - `.history/` 按文件归档最近版本，支持查看与回滚
+- `icons/` 设备与组图标资源
+- `examples/` 采集任务的 systemd 定时示例
+- 根目录下若干前端页面：`topology.html`、`config.html`、`login.html`、`debug.html`、`ethernet.html`
+- 数据文件（前端只读）：`devices.json`、`links.json`、`topology.json`
 
-## Getting started
+## 快速开始
+- 依赖：
+  - Go ≥ 1.20
+  - Python ≥ 3.8，且安装 `requests`
+- 启动后端：
+  - `go run server/main.go`
+  - 浏览器访问 `http://localhost:8181/`
+- 可用环境变量：
+  - `PORT` 默认 `8181`
+  - `WEB_ROOT` 静态资源根目录，默认 `..`（项目根）
+  - `CONFIG_DIR` 配置目录，默认 `../config`
+  - `JWT_SECRET` JWT 签名密钥，默认开发值，生产必须覆盖
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 登录与权限
+- 在 `config/.users.local` 写入两行：
+  - 第1行用户名
+  - 第2行密码
+- `POST /api/login` 获取 `token` 后在请求头加入 `Authorization: Bearer <token>` 即可访问受保护接口。
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## 前端页面
+- `topology.html` 可视化拓扑，支持图例、故障高亮、管理员模式与前台编辑工具条。
+- `config.html` 简化的配置查看/编辑入口（通过后端 API）。
+- `login.html` 管理员登录界面。
 
-## Add your files
+## 配置文件说明
+- `config/group_rules.json` 分组与样式覆盖规则。
+- `config/topology_config.json` 或 `config/topology.config.json` 全局样式、布局与交互参数。
+- `config/positions.json` 节点/组坐标与锁定，用于拖拽保存布局。
+- `config/link_overrides.json` 连线黑白名单，仅影响显隐。
+- 页面在缺失配置时提供默认包的下载入口，放置到 `config/` 即生效。
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## 数据源与采集
+- `devices.json` 设备名列表（由采集维护）。
+- `links.json` 设备间连线（由 LLDP 采集生成）。
+- `topology.json` 设备端口速率与流量聚合（由 SNMP/Prometheus 采集生成）。
+- 采集脚本：
+  - 编辑 `cmd/snmp.py` 中的 `PROM_URL`，运行：
+    - `python3 cmd/snmp.py`
+    - 输出更新 `topology.json`
+  - 编辑 `cmd/lldp.go` 中的 `promURL`，运行：
+    - `go run cmd/lldp.go`
+    - 输出 `links-raw.json`（原始）与过滤后的 `links.json`，并增量追加 `devices.json`
+- 可参考 `examples/snmp.service` 与 `examples/snmp.timer` 将采集任务以 systemd 定时运行。
 
-```
-cd existing_repo
-git remote add origin http://192.168.2.160:9091/sre/topology.git
-git branch -M main
-git push -uf origin main
-```
+## 后端 API
+- `GET /api/health` 服务健康检查
+- `POST /api/login` 登录，读取 `config/.users.local` 生成 JWT
+- `GET /api/config/:name` 读取配置
+  - `name ∈ {group_rules, topology_config, positions, link_overrides}`
+- `PUT /api/config/:name` 写入配置（需 `Bearer`），支持内容未变时的无操作返回
+- `GET /api/history/:name` 查看历史版本列表
+- `POST /api/history/:name/backup` 从当前配置创建快照
+- `POST /api/history/:name/rollback` 按时间戳回滚配置
+- 静态与数据：
+  - `/web` 映射到 `WEB_ROOT`
+  - `/icons` 映射到 `WEB_ROOT/icons`
+  - `/topology` 映射到 `WEB_ROOT`（便于相对路径加载）
+  - `/devices.json`、`/links.json`、`/topology.json`、`/prometheus.json` 若不存在则返回空结构
 
-## Integrate with your tools
+## 部署建议
+- 设置环境变量强化安全与路径：
+  - `JWT_SECRET` 使用强随机字符串
+  - `WEB_ROOT` 指向静态资源所在目录
+  - `CONFIG_DIR` 指向配置持久化目录（确保可写）
+- 通过反向代理暴露 `8181` 端口，开启 TLS。
+- 将采集脚本按需写入定时任务，保证数据文件持续更新。
 
-- [ ] [Set up project integrations](http://192.168.2.160:9091/sre/topology/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## 开发问题记录
+- 前端使用 `vis-network`，图标资源走 `/icons/*`，缓存头已优化。
+- 管理员模式支持在线检查缺失配置与下载默认包；前台编辑可在无后端写入时使用本地缓存并导出 JSON。
+- 需要定制风格与图标时可修改 `config/topology_config.json` 的 `default_icons` 与布局相关字段。

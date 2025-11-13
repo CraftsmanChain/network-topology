@@ -1,0 +1,4 @@
+[Service]
+Type=oneshot
+WorkingDirectory=/ops/web/topology
+ExecStart=/bin/bash -lc 'go run cmd/lldp.go ;python3 cmd/snmp.py'
