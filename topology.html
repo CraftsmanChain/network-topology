@@ -71,6 +71,17 @@ body {
     padding: 10px;
     overflow-y: auto;
 }
+.sidebar-resizer {
+    position: absolute;
+    left: -4px;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 1201;
+    background: transparent;
+}
+.sidebar-resizer:hover { background: rgba(255,255,255,0.06); }
 .sidebar h2 {
     margin-top: 0;
     font-size: 18px;
@@ -86,7 +97,16 @@ body {
     padding: 4px;
     font-size: 12px;
     text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
+/* 表格斑马条纹，便于跨列阅读 */
+.port-table tbody tr:nth-child(even):not(.alarm-row) { background-color: transparent !important; }
+.port-table tbody tr { cursor: pointer; }
+.port-table tbody tr:hover { background-color: #2a354d; }
+.port-table tbody tr.row-selected { background-color: #3e5a8f !important; box-shadow: inset 0 0 0 2px #7aa2ff; }
+.port-table tbody tr.row-selected td { font-weight: 600; color: #e6f1ff; }
 .port-up { color: #00ff9d; }
 .port-down { color: #ff4d4d; }
 .legend {
@@ -301,6 +321,19 @@ body {
 .admin-modal label { width: 160px; font-size: 12px; color: #9fb3c8; }
 .admin-modal input[type="text"] { flex: 1; background: #243049; border: 1px solid #2a3244; border-radius: 6px; color: #cfe7ff; padding: 6px 8px; font-size: 12px; }
 
+/* 链路详情全屏容器 */
+.link-fs {
+    position: fixed;
+    left: 0; top: 0; right: 0; bottom: 0;
+    background: #1f2637;
+    border-left: 1px solid #2a3244;
+    z-index: 2000;
+    overflow: auto;
+    padding: 16px;
+    display: none;
+}
+.link-fs .btn-row { margin-top: 8px; display: flex; gap: 8px; }
+
 /* 前台编辑工具条，置于画布上方并可点击 */
 .edit-toolbar {
     position: absolute;
@@ -393,6 +426,7 @@ body {
     </div>
   </div>
 <div class="sidebar">
+    <div id="sidebar-resizer" class="sidebar-resizer"></div>
     <h2 id="sidebar-title">集群信息</h2>
     <div id="device-info"></div>
 </div>
@@ -897,6 +931,8 @@ document.getElementById('save-icons').addEventListener('click', () => {
   const cfg = await loadConfigs();
   applyTopologyConfig(cfg.topology);
 })();
+try { if (typeof initSidebarResizer === 'function') initSidebarResizer(); } catch (e) {}
+try { markSidebarContent('overview'); } catch (e) {}
 
 // 监听跨标签页的配置更新通知，自动刷新配置与图标
 window.addEventListener('storage', async (e) => {
@@ -1220,6 +1256,7 @@ function getLinkColor(d, nodeMap) {
 
 // 显示整体信息
 function showOverview(nodes) {
+    try { markSidebarContent('overview'); } catch (e) {}
     const sidebar = document.getElementById('device-info');
     const sidebarTitle = document.getElementById('sidebar-title');
     if (!sidebar || !sidebarTitle) {
@@ -1262,6 +1299,7 @@ function showOverview(nodes) {
     html += `</div>`;
 
     sidebar.innerHTML = html;
+    attachRowSelectHandlers(sidebar);
     renderAlarmList(nodes);
 }
 
@@ -1334,6 +1372,7 @@ async function renderAlarmList(nodes) {
 
 // 显示设备详情
 function showDeviceInfo(d) {
+    try { markSidebarContent('device'); } catch (e) {}
     const sidebar = document.getElementById('device-info');
     const sidebarTitle = document.getElementById('sidebar-title');
     sidebarTitle.textContent = '设备信息';
@@ -1424,6 +1463,7 @@ function showDeviceInfo(d) {
 
 // 显示链路详情
 function showLinkInfo(edgeData) {
+    try { markSidebarContent('link'); } catch (e) {}
     const sidebar = document.getElementById('device-info');
     const sidebarTitle = document.getElementById('sidebar-title');
     // 链路详情不依赖组上下文，进入时清空
@@ -1448,8 +1488,10 @@ function showLinkInfo(edgeData) {
     const currStatusStr = forced ? (`覆盖: ${forced}`) : (isDown ? 'DOWN' : 'UP');
     html += `<p>状态: <span class="${isDown ? 'status-down' : 'status-up'}">${currStatusStr}</span></p>`;
     html += `</div>`;
+    html += `<div style="margin:8px 0;"><button id="link-expand-toggle" class="edit-btn">展示全部列</button></div>`;
+    let tableHtml = '';
     if (links.length > 0) {
-        html += `<table class="port-table">
+        tableHtml += `<table class="port-table">
             <thead>
                 <tr>
                     <th>本端设备</th>
@@ -1477,26 +1519,28 @@ function showLinkInfo(edgeData) {
             const srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
             const tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
             const anyDown = !srcUp || !tgtUp;
-            html += `<tr class="${anyDown ? 'alarm alarm-row' : ''}">`;
-            html += `<td>${srcNode ? (srcNode.label || srcNode.id) : link.source}</td>`;
-            html += `<td>${link.sourcePort}</td>`;
-            html += `<td class="${srcUp ? 'port-up' : 'port-down'}">${srcUp ? 'UP' : 'DOWN'}</td>`;
-            html += `<td>${srcPort ? (srcPort.speed_mbps || 0) : '-'}</td>`;
-            html += `<td>${srcPort ? formatBytes(srcPort.transmit || 0) : '-'}</td>`;
-            html += `<td>${srcPort ? formatBytes(srcPort.receive || 0) : '-'}</td>`;
-            html += `<td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>`;
-            html += `<td>${tgtNode ? (tgtNode.label || tgtNode.id) : link.target}</td>`;
-            html += `<td>${link.targetPort}</td>`;
-            html += `<td class="${tgtUp ? 'port-up' : 'port-down'}">${tgtUp ? 'UP' : 'DOWN'}</td>`;
-            html += `<td>${tgtPort ? (tgtPort.speed_mbps || 0) : '-'}</td>`;
-            html += `<td>${tgtPort ? formatBytes(tgtPort.transmit || 0) : '-'}</td>`;
-            html += `<td>${tgtPort ? formatBytes(tgtPort.receive || 0) : '-'}</td>`;
-            html += `<td>${tgtPort ? Math.max(tgtPort.transmit_percent || 0, tgtPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>`;
-            html += `</tr>`;
+            tableHtml += `<tr class="${anyDown ? 'alarm alarm-row' : ''}">`;
+            tableHtml += `<td>${srcNode ? (srcNode.label || srcNode.id) : link.source}</td>`;
+            tableHtml += `<td>${link.sourcePort}</td>`;
+            tableHtml += `<td class="${srcUp ? 'port-up' : 'port-down'}">${srcUp ? 'UP' : 'DOWN'}</td>`;
+            tableHtml += `<td>${srcPort ? (srcPort.speed_mbps || 0) : '-'}</td>`;
+            tableHtml += `<td>${srcPort ? formatBytes(srcPort.transmit || 0) : '-'}</td>`;
+            tableHtml += `<td>${srcPort ? formatBytes(srcPort.receive || 0) : '-'}</td>`;
+            tableHtml += `<td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>`;
+            tableHtml += `<td>${tgtNode ? (tgtNode.label || tgtNode.id) : link.target}</td>`;
+            tableHtml += `<td>${link.targetPort}</td>`;
+            tableHtml += `<td class="${tgtUp ? 'port-up' : 'port-down'}">${tgtUp ? 'UP' : 'DOWN'}</td>`;
+            tableHtml += `<td>${tgtPort ? (tgtPort.speed_mbps || 0) : '-'}</td>`;
+            tableHtml += `<td>${tgtPort ? formatBytes(tgtPort.transmit || 0) : '-'}</td>`;
+            tableHtml += `<td>${tgtPort ? formatBytes(tgtPort.receive || 0) : '-'}</td>`;
+            tableHtml += `<td>${tgtPort ? Math.max(tgtPort.transmit_percent || 0, tgtPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>`;
+            tableHtml += `</tr>`;
         });
-        html += `</tbody></table>`;
+        tableHtml += `</tbody></table>`;
+        html += tableHtml;
     } else {
-        html += `<p>无互联端口信息</p>`;
+        tableHtml = `<p>无互联端口信息</p>`;
+        html += tableHtml;
     }
     // 编辑模式控件：状态覆盖（UP/DOWN/不指定）并保存
     if (window.__EDIT_MODE) {
@@ -1513,6 +1557,23 @@ function showLinkInfo(edgeData) {
         </div>`;
     }
     sidebar.innerHTML = html;
+    const toggleBtn = document.getElementById('link-expand-toggle');
+    if (toggleBtn) {
+        const doExpand = () => {
+            openLinkFullscreen(tableHtml);
+            __SIDEBAR_LINK_EXPANDED = true;
+            __SIDEBAR_RESIZED_FOR_LINK = true;
+            toggleBtn.textContent = '最小化';
+        };
+        const doMinimize = () => {
+            closeLinkFullscreen();
+            applySidebarWidth(__SIDEBAR_DEFAULT_WIDTH);
+            __SIDEBAR_LINK_EXPANDED = false;
+            toggleBtn.textContent = '展示全部列';
+        };
+        toggleBtn.addEventListener('click', () => { if (__LINK_FULLSCREEN) doMinimize(); else doExpand(); });
+        toggleBtn.textContent = __LINK_FULLSCREEN ? '最小化' : '展示全部列';
+    }
     if (window.__EDIT_MODE) {
         const btn = document.getElementById('save-link-override');
         const sel = document.getElementById('link-status-override');
@@ -1722,6 +1783,7 @@ async function showDeviceSpecialLines(deviceId) {
 
 // 显示组成员列表
 function showGroupInfo(groupNode) {
+    try { markSidebarContent('group'); } catch (e) {}
     const sidebar = document.getElementById('device-info');
     const sidebarTitle = document.getElementById('sidebar-title');
     // 记录侧栏上下文以支持返回组
@@ -1914,7 +1976,7 @@ function edgeHasDownInterPort(edge, nodeMap) {
 
 async function loadLinkInfo() {
     try {
-        const res = await fetch('links.json');
+        const res = await fetch('links.json?t=' + Date.now(), { cache: 'no-store' });
         const data = await res.json();
         if (!Array.isArray(data)) return;
         linkMap.clear();
@@ -1968,6 +2030,121 @@ let network, networkData, nodeMap, nodes, edges;
 let specialLineDownMap = { acc02: false };
 let groupRulesCache = null; // 组规则缓存
 let groupMembersById = {};  // 每组成员列表
+let __SIDEBAR_DEFAULT_WIDTH = 220;
+let __SIDEBAR_WIDTH = 220;
+let __SIDEBAR_RESIZED_FOR_LINK = false;
+let __SIDEBAR_CONTENT_TYPE = 'overview';
+let __SIDEBAR_LINK_EXPANDED = false;
+let __LINK_FULLSCREEN = false;
+function applySidebarWidth(w) {
+    try {
+        const vw = document.documentElement.clientWidth || window.innerWidth || 1280;
+        const minW = 280;
+        const maxW = Math.floor(vw * 0.6);
+        const nw = Math.max(minW, Math.min(parseInt(w, 10) || __SIDEBAR_DEFAULT_WIDTH, maxW));
+        const sb = document.querySelector('.sidebar');
+        const topo = document.getElementById('topo');
+        if (sb) sb.style.width = nw + 'px';
+        if (topo) topo.style.width = 'calc(100vw - ' + nw + 'px)';
+        __SIDEBAR_WIDTH = nw;
+    } catch (e) {}
+}
+function initSidebarResizer() {
+    const sb = document.querySelector('.sidebar');
+    if (!sb) return;
+    let handle = document.getElementById('sidebar-resizer');
+    if (!handle) {
+        handle = document.createElement('div');
+        handle.id = 'sidebar-resizer';
+        handle.className = 'sidebar-resizer';
+        sb.insertBefore(handle, sb.firstChild);
+    }
+    let dragging = false;
+    let startType = 'overview';
+    const onDown = function(e){ dragging = true; startType = __SIDEBAR_CONTENT_TYPE; document.body.style.cursor = 'col-resize'; e.preventDefault(); };
+    const onMove = function(e){ if (!dragging) return; const vw = document.documentElement.clientWidth || window.innerWidth || 1280; const newW = vw - e.clientX; applySidebarWidth(newW); if (startType === 'link') __SIDEBAR_RESIZED_FOR_LINK = true; };
+    const onUp = function(){ if (!dragging) return; dragging = false; document.body.style.cursor = ''; };
+    handle.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    applySidebarWidth(__SIDEBAR_DEFAULT_WIDTH);
+}
+function openLinkFullscreen(contentHtml) {
+    let fs = document.getElementById('link-fs');
+    if (!fs) {
+        fs = document.createElement('div');
+        fs.id = 'link-fs';
+        fs.className = 'link-fs';
+        document.body.appendChild(fs);
+    }
+    fs.innerHTML = `<div class="btn-row" style="margin-bottom:8px"><button id="link-fs-toggle" class="edit-btn">最小化</button></div>` +
+        `<div class="device-info-box"><p><b>链路信息（全屏）</b></p></div>` +
+        `<div style="overflow-x:auto">` + contentHtml + `</div>`;
+    fs.style.display = 'block';
+    __LINK_FULLSCREEN = true;
+    const fsToggleBtn = document.getElementById('link-fs-toggle');
+    if (fsToggleBtn) {
+        fsToggleBtn.addEventListener('click', () => {
+            closeLinkFullscreen();
+            applySidebarWidth(__SIDEBAR_DEFAULT_WIDTH);
+            __SIDEBAR_LINK_EXPANDED = false;
+            const origin = document.getElementById('link-expand-toggle');
+            if (origin) origin.textContent = '展示全部列';
+        });
+    }
+    attachRowSelectHandlers(fs);
+}
+function closeLinkFullscreen() {
+    const fs = document.getElementById('link-fs');
+    if (fs) fs.style.display = 'none';
+    __LINK_FULLSCREEN = false;
+    try {
+        const toggleBtn = document.getElementById('link-expand-toggle');
+        if (toggleBtn) toggleBtn.textContent = '展示全部列';
+    } catch (e) {}
+}
+function attachRowSelectHandlers(root) {
+    try {
+        const tbody = root.querySelector('.port-table tbody');
+        if (!tbody) return;
+        const getRows = () => Array.from(tbody.querySelectorAll('tr'));
+        tbody.addEventListener('click', (ev) => {
+            const tr = ev.target && ev.target.closest ? ev.target.closest('tr') : null;
+            if (!tr || !tbody.contains(tr)) return;
+            const rows = getRows();
+            const idx = rows.indexOf(tr);
+            const hasShift = !!ev.shiftKey;
+            const hasMeta = !!ev.metaKey || !!ev.ctrlKey;
+            let lastIdx = parseInt(tbody.getAttribute('data-last-selected-index') || '-1', 10);
+            if (hasShift && lastIdx >= 0) {
+                const start = Math.min(lastIdx, idx);
+                const end = Math.max(lastIdx, idx);
+                rows.forEach((r, i) => { if (i >= start && i <= end) r.classList.add('row-selected'); });
+            } else if (hasMeta) {
+                if (tr.classList.contains('row-selected')) tr.classList.remove('row-selected'); else tr.classList.add('row-selected');
+            } else {
+                rows.forEach(r => r.classList.remove('row-selected'));
+                tr.classList.add('row-selected');
+            }
+            tbody.setAttribute('data-last-selected-index', String(idx));
+        });
+    } catch (e) {}
+}
+function markSidebarContent(t) {
+    __SIDEBAR_CONTENT_TYPE = t;
+    const targetDefault = (t === 'overview') ? Math.round(__SIDEBAR_DEFAULT_WIDTH * 0.6) : __SIDEBAR_DEFAULT_WIDTH;
+    if (t !== 'link' && (__SIDEBAR_RESIZED_FOR_LINK || __SIDEBAR_LINK_EXPANDED)) {
+        applySidebarWidth(targetDefault);
+        __SIDEBAR_RESIZED_FOR_LINK = false;
+        __SIDEBAR_LINK_EXPANDED = false;
+    }
+    if (t === 'overview') {
+        applySidebarWidth(targetDefault);
+    }
+    if (t !== 'link' && __LINK_FULLSCREEN) {
+        closeLinkFullscreen();
+    }
+}
 
 // 检查互联端口是否DOWN
 function hasDownInterPort(node) {
@@ -2113,7 +2290,7 @@ async function loadTopology() {
             if (groupRulesCache) return groupRulesCache;
             // 优先读取后端 API；失败则回退到静态文件 /config/group_rules.json
             try {
-                const r = await fetch('/api/config/group_rules');
+                const r = await fetch('/api/config/group_rules?t=' + Date.now(), { cache: 'no-store' });
                 if (r && r.ok) {
                     const json = await r.json();
                     groupRulesCache = json || { groups: [] };
@@ -2121,7 +2298,7 @@ async function loadTopology() {
                 }
             } catch (e) { /* ignore */ }
             try {
-                const rs = await fetch('/config/group_rules.json');
+                const rs = await fetch('/config/group_rules.json?t=' + Date.now(), { cache: 'no-store' });
                 if (rs && rs.ok) {
                     const js = await rs.json();
                     groupRulesCache = js || { groups: [] };
@@ -2144,7 +2321,7 @@ async function loadTopology() {
         // 优先使用后端提供的 topology.json（包含设备详细数据）
         let data;
         try {
-            const topoRes = await fetch('topology.json');
+            const topoRes = await fetch('topology.json?t=' + Date.now(), { cache: 'no-store' });
             data = await topoRes.json();
         } catch (e) {
             data = null;
@@ -2163,7 +2340,7 @@ async function loadTopology() {
         // 最后兜底：使用 topology-debug.json
         if (!data || !data.nodes) {
             try {
-                const res = await fetch('topology.json');
+                const res = await fetch('topology.json?t=' + Date.now(), { cache: 'no-store' });
                 data = await res.json();
             } catch (e) {
                 data = null;
@@ -2408,7 +2585,7 @@ async function loadTopology() {
                 const saved = savedPositions[d.id] || null;
                 visNodes.push({
                     id: d.id,
-                    label: alias ? alias : (d.label || d.id),
+                    label: (d.label && String(d.label).trim()) ? d.label : (alias || d.id),
                     shape: 'image',
                     image: getNodeIconWithInterPort(d),
                     size: 40,
@@ -2453,7 +2630,7 @@ async function loadTopology() {
                 const alias = cfgAliases[d.id] || null;
                 visNodes.push({
                     id: d.id,
-                    label: alias ? alias : (d.label || d.id),
+                    label: (d.label && String(d.label).trim()) ? d.label : (alias || d.id),
                     shape: 'image',
                     image: getNodeIconWithInterPort(d),
                     size: 36,
@@ -2509,7 +2686,10 @@ async function loadTopology() {
             const savedGroup = savedPositions['group:' + g.id] || null;
             visNodes.push({
                 id: 'group:' + g.id,
-                label: g.name || g.id,
+                label: (function(){
+                    const a = ((window.__TOPO_CFG||DEFAULTS.topology||{}).aliases)||{};
+                    return a['group:'+g.id] || a[g.id] || (g.style_override && g.style_override.alias) || g.alias || g.name || g.id;
+                })(),
                 shape: 'image',
                 image: img,
                 size: 44,
@@ -2985,7 +3165,7 @@ async function renderDevicesFallback(devices) {
       : (((pos && pos.profiles && pos.profiles[activeName] && pos.profiles[activeName].nodes) || null) || ((pos && pos.nodes) || {}));
     list.forEach(d => {
         const id = d.id || d.device_id || d.name || String(d);
-        const label = (cfg.aliases && cfg.aliases[id]) || d.name || id;
+        const label = (d.name && String(d.name).trim()) ? d.name : (((cfg.aliases && cfg.aliases[id]) || id));
         const p = positions[id] || {};
         const status = (typeof d.status === 'number' ? d.status : 0);
         const img = getNodeIcon({ id, status });
