@@ -1053,7 +1053,10 @@ window.addEventListener('storage', async (e) => {
     try {
       const cfgAll = await loadConfigs();
       const cfg = cfgAll.topology || {};
-      const aliases = cfg.aliases || {}; const types = cfg.types || {};
+      const active = getActiveProfileName(cfg);
+      const prof = (cfg && cfg.profiles && cfg.profiles[active]) ? cfg.profiles[active] : null;
+      const aliases = (active === 'main') ? (cfg.aliases || {}) : ((prof && prof.aliases) || {});
+      const types = (active === 'main') ? (cfg.types || {}) : ((prof && prof.types) || {});
       const modal = document.getElementById('fe-modal');
       const backdrop = document.getElementById('fe-backdrop');
       document.getElementById('fe-node-id').value = nodeId;
@@ -1071,14 +1074,24 @@ window.addEventListener('storage', async (e) => {
           const name = document.getElementById('fe-node-name').value.trim();
           const type = document.getElementById('fe-node-type').value;
           const id = document.getElementById('fe-node-id').value;
-          const newCfg = { ...cfg };
-          newCfg.aliases = { ...(cfg.aliases || {}) };
-          newCfg.types = { ...(cfg.types || {}) };
-          if (name) newCfg.aliases[id] = name; else delete newCfg.aliases[id];
-          if (type) newCfg.types[id] = type; else delete newCfg.types[id];
-          await putConfig('topology_config', newCfg);
+          const activeName = getActiveProfileName(cfg);
+          const next = { ...cfg };
+          next.profiles = next.profiles || {};
+          if (activeName === 'main') {
+            next.aliases = { ...(cfg.aliases || {}) };
+            next.types = { ...(cfg.types || {}) };
+            if (name) next.aliases[id] = name; else delete next.aliases[id];
+            if (type) next.types[id] = type; else delete next.types[id];
+          } else {
+            const p = next.profiles[activeName] = next.profiles[activeName] || {};
+            p.aliases = { ...(p.aliases || {}) };
+            p.types = { ...(p.types || {}) };
+            if (name) p.aliases[id] = name; else if (p.aliases) delete p.aliases[id];
+            if (type) p.types[id] = type; else if (p.types) delete p.types[id];
+          }
+          await putConfig('topology_config', next);
           // 同页立即应用最新配置，便于图标与别名即时更新
-          try { window.__TOPO_CFG = newCfg; applyTopologyConfig(newCfg); } catch (e) {}
+          try { window.__TOPO_CFG = next; applyTopologyConfig(next); } catch (e) {}
           localStorage.setItem('topo_config_updated', String(Date.now()));
           // 即时更新当前图
           if (window.networkData && window.networkData.nodes) {
@@ -2585,7 +2598,7 @@ async function loadTopology() {
                 const saved = savedPositions[d.id] || null;
                 visNodes.push({
                     id: d.id,
-                    label: (d.label && String(d.label).trim()) ? d.label : (alias || d.id),
+                    label: (alias || (d.label && String(d.label).trim()) || d.id),
                     shape: 'image',
                     image: getNodeIconWithInterPort(d),
                     size: 40,
@@ -2630,7 +2643,7 @@ async function loadTopology() {
                 const alias = cfgAliases[d.id] || null;
                 visNodes.push({
                     id: d.id,
-                    label: (d.label && String(d.label).trim()) ? d.label : (alias || d.id),
+                    label: (alias || (d.label && String(d.label).trim()) || d.id),
                     shape: 'image',
                     image: getNodeIconWithInterPort(d),
                     size: 36,
