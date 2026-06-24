@@ -337,29 +337,39 @@
       fill: #102a3a;
       stroke: #0ea5e9;
     }
-    .node-icon-shell {
-      fill: rgba(34, 211, 238, .11);
-      stroke: rgba(103, 232, 249, .28);
-      stroke-width: 1;
-    }
-    .node-card.down .node-icon-shell {
-      fill: rgba(239, 68, 68, .12);
-      stroke: rgba(239, 68, 68, .42);
-    }
     .node-title {
       fill: #f8fafc;
       font-size: 12px;
       font-weight: 700;
       pointer-events: none;
+      text-anchor: middle;
     }
     .node-meta {
       fill: #94a3b8;
       font-size: 10px;
       pointer-events: none;
+      text-anchor: middle;
     }
     .node-dot {
       stroke: rgba(255,255,255,.35);
       stroke-width: 1;
+    }
+    .switch-icon-body {
+      stroke: rgba(224, 242, 254, .62);
+      stroke-width: 1.2;
+    }
+    .switch-icon-mark {
+      fill: none;
+      stroke: #e0f2fe;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .switch-icon-port {
+      fill: #f97316;
+    }
+    .node-card.down .switch-icon-body {
+      stroke: rgba(254, 202, 202, .8);
     }
     .link {
       fill: none;
@@ -762,8 +772,8 @@
       });
 
       const layoutCfg = {
-        cardW: 148,
-        cardH: 68,
+        cardW: 142,
+        cardH: 106,
         padX: 24,
         headerH: 58,
         padBottom: 24,
@@ -837,8 +847,8 @@
               node.y = cursorY;
               node.cx = node.x + layoutCfg.cardW / 2;
               node.cy = node.y + layoutCfg.cardH / 2;
-              node.iconCx = node.x + 27;
-              node.iconCy = node.y + 27;
+              node.iconCx = node.x + layoutCfg.cardW / 2;
+              node.iconCy = node.y + 38;
             });
             cursorY += layoutCfg.cardH + layoutCfg.rowGap;
           }
@@ -866,6 +876,47 @@
     function truncate(text, max) {
       const s = String(text || '');
       return s.length > max ? s.slice(0, max - 1) + '...' : s;
+    }
+
+    function appendSwitchIcon(group, node) {
+      const x = (node.w - 54) / 2;
+      const y = 10;
+      if (node.kind === 'group') {
+        group.appendChild(svgEl('rect', {
+          x: x + 5,
+          y: y + 6,
+          width: 48,
+          height: 38,
+          rx: 8,
+          fill: node.down ? '#3a1820' : '#0b4260',
+          stroke: node.down ? '#ef4444' : '#0369a1',
+          'stroke-width': 1
+        }));
+      }
+      const bodyFill = node.down ? '#991b1b' : (node.role === 1 ? '#0284c7' : '#2563eb');
+      const body = svgEl('rect', {
+        class: 'switch-icon-body',
+        x,
+        y,
+        width: 48,
+        height: 38,
+        rx: 8,
+        fill: bodyFill
+      });
+      group.appendChild(body);
+      const centerX = x + 24;
+      const centerY = y + 19;
+      group.appendChild(svgEl('path', { class: 'switch-icon-mark', d: `M${centerX},${y + 7}v24M${x + 12},${centerY}h24` }));
+      group.appendChild(svgEl('path', { class: 'switch-icon-mark', d: `M${centerX},${y + 7}l-5,5M${centerX},${y + 7}l5,5M${centerX},${y + 31}l-5,-5M${centerX},${y + 31}l5,-5M${x + 12},${centerY}l5,-5M${x + 12},${centerY}l5,5M${x + 36},${centerY}l-5,-5M${x + 36},${centerY}l-5,5` }));
+      if (node.role === 1) {
+        [x + 11, x + 19, x + 27, x + 35].forEach(px => {
+          group.appendChild(svgEl('rect', { class: 'switch-icon-port', x: px, y: y + 27, width: 4, height: 5, rx: 1 }));
+        });
+      } else {
+        [x + 10, x + 18, x + 26, x + 34].forEach(px => {
+          group.appendChild(svgEl('circle', { class: 'switch-icon-port', cx: px, cy: y + 29, r: 2 }));
+        });
+      }
     }
 
     function linePath(a, b) {
@@ -940,14 +991,12 @@
           showNodeDetail(node);
         });
         group.appendChild(svgEl('rect', { class: 'node-rect', width: node.w, height: node.h, rx: 7 }));
-        group.appendChild(svgEl('rect', { class: 'node-icon-shell', x: 10, y: 10, width: 34, height: 34, rx: 7 }));
-        const iconHref = node.role === 1 ? '/topology/icons/topology-switch-agg.svg' : '/topology/icons/topology-switch-access.svg';
-        group.appendChild(svgEl('image', { href: iconHref, x: 14, y: 14, width: 26, height: 26 }));
-        group.appendChild(svgEl('circle', { class: 'node-dot', cx: 135, cy: 14, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
-        const title = svgEl('text', { class: 'node-title', x: 52, y: 24 });
+        appendSwitchIcon(group, node);
+        group.appendChild(svgEl('circle', { class: 'node-dot', cx: node.w - 13, cy: 14, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
+        const title = svgEl('text', { class: 'node-title', x: node.w / 2, y: 66 });
         title.textContent = truncate(node.label, 14);
         group.appendChild(title);
-        const meta = svgEl('text', { class: 'node-meta', x: 52, y: 46 });
+        const meta = svgEl('text', { class: 'node-meta', x: node.w / 2, y: 87 });
         meta.textContent = node.kind === 'group' ? `${roleLabel(node.role)} / ${node.count} 台` : `${roleLabel(node.role)} / ${node.down ? 'DOWN' : 'UP'}`;
         group.appendChild(meta);
         nodeLayer.appendChild(group);
