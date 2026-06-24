@@ -7,10 +7,12 @@
   <script src="https://unpkg.com/animejs@3.2.2/lib/anime.min.js"></script>
   <style>
     :root {
-      --bg: #0b1020;
+      --bg: #08111f;
+      --surface: #0f172a;
       --panel: #111827;
       --panel-2: #172033;
       --line: #263245;
+      --line-strong: #39516f;
       --text: #e5edf7;
       --muted: #91a0b6;
       --accent: #22d3ee;
@@ -29,7 +31,7 @@
     }
     .shell {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-columns: minmax(0, 1fr) 360px;
       grid-template-rows: 56px minmax(0, 1fr);
       height: 100vh;
     }
@@ -38,6 +40,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
       padding: 0 18px;
       border-bottom: 1px solid var(--line);
       background: #0f172a;
@@ -65,6 +68,7 @@
       align-items: center;
       gap: 10px;
       font-size: 13px;
+      white-space: nowrap;
     }
     .actions a,
     .actions button {
@@ -119,10 +123,19 @@
       margin-bottom: 12px;
     }
     .metric {
+      appearance: none;
+      text-align: left;
+      color: inherit;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 6px;
       padding: 10px;
+      cursor: pointer;
+    }
+    .metric:hover,
+    .metric.active {
+      border-color: var(--accent);
+      background: #132033;
     }
     .metric b {
       display: block;
@@ -163,18 +176,134 @@
       line-height: 1.55;
       word-break: break-word;
     }
-    .detail table {
-      width: 100%;
-      border-collapse: collapse;
+    .detail-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .detail-title b {
+      color: #f8fafc;
+      font-size: 14px;
+    }
+    .detail-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+    }
+    .detail-btn {
+      color: #67e8f9;
+      background: #172033;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 6px 9px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .detail-btn:hover { border-color: var(--accent); }
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin: 8px 0;
+    }
+    .info-item {
+      background: rgba(17, 24, 39, .72);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+    }
+    .info-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .info-item b {
+      color: #f8fafc;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .list {
+      display: grid;
+      gap: 6px;
       margin-top: 8px;
     }
-    .detail td,
-    .detail th {
+    .list-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
       border: 1px solid var(--line);
-      padding: 5px;
+      border-radius: 6px;
+      padding: 8px;
+      background: rgba(17, 24, 39, .55);
+      cursor: pointer;
+    }
+    .list-row:hover { border-color: var(--accent); }
+    .list-row strong {
+      color: #f8fafc;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .list-row small {
+      display: block;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 42px;
+      height: 22px;
+      border-radius: 999px;
+      padding: 0 8px;
+      font-size: 11px;
+      color: #dbeafe;
+      background: #1e293b;
+      border: 1px solid #334155;
+    }
+    .badge.ok { color: #bbf7d0; border-color: rgba(34,197,94,.45); background: rgba(22,101,52,.25); }
+    .badge.bad { color: #fecaca; border-color: rgba(239,68,68,.45); background: rgba(127,29,29,.25); }
+    .badge.warn { color: #fde68a; border-color: rgba(245,158,11,.45); background: rgba(120,53,15,.25); }
+    .detail-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    .port-table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+      color: #dbeafe;
+      background: rgba(15, 23, 42, .72);
+    }
+    .port-table th,
+    .port-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 6px 7px;
       text-align: left;
       font-size: 12px;
+      white-space: nowrap;
     }
+    .port-table th {
+      color: #93c5fd;
+      font-weight: 600;
+      background: #111827;
+    }
+    .port-table tr:last-child td { border-bottom: 0; }
+    .port-up { color: var(--ok); }
+    .port-down { color: var(--bad); }
+    .alarm-row { background: rgba(127, 29, 29, .22); }
     .zone-label {
       fill: #f8fafc;
       font-size: 15px;
@@ -189,6 +318,12 @@
       stroke: #263245;
       stroke-width: 1;
       rx: 8;
+    }
+    .role-label {
+      fill: #64748b;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0;
     }
     .node-card {
       cursor: pointer;
@@ -208,6 +343,15 @@
       fill: #102a3a;
       stroke: #0ea5e9;
     }
+    .node-icon-shell {
+      fill: rgba(34, 211, 238, .11);
+      stroke: rgba(103, 232, 249, .28);
+      stroke-width: 1;
+    }
+    .node-card.down .node-icon-shell {
+      fill: rgba(239, 68, 68, .12);
+      stroke: rgba(239, 68, 68, .42);
+    }
     .node-title {
       fill: #f8fafc;
       font-size: 12px;
@@ -226,7 +370,7 @@
     .link {
       fill: none;
       stroke-linecap: round;
-      opacity: .72;
+      opacity: .7;
       cursor: pointer;
     }
     .link:hover {
@@ -237,14 +381,6 @@
       opacity: .92;
       stroke-dasharray: 8 6;
     }
-    .link-label {
-      fill: #cbd5e1;
-      font-size: 10px;
-      paint-order: stroke;
-      stroke: #08111f;
-      stroke-width: 4;
-      pointer-events: none;
-    }
     .loading {
       position: absolute;
       inset: 0;
@@ -254,10 +390,23 @@
       background: rgba(8,17,31,.7);
       z-index: 3;
     }
+    .link-fs {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: none;
+      overflow: auto;
+      padding: 16px;
+      color: var(--text);
+      background: #0f172a;
+    }
+    .link-fs .port-table {
+      min-width: 1180px;
+    }
     @media (max-width: 1024px) {
       .shell {
         grid-template-columns: 1fr;
-        grid-template-rows: 56px minmax(0, 1fr) 260px;
+        grid-template-rows: 56px minmax(0, 1fr) 280px;
       }
       .side {
         border-left: 0;
@@ -291,10 +440,10 @@
     </main>
     <aside class="side">
       <div class="metric-grid">
-        <div class="metric"><b id="metric-devices">-</b><span>设备</span></div>
-        <div class="metric"><b id="metric-links">-</b><span>聚合链路</span></div>
-        <div class="metric"><b id="metric-down">-</b><span>故障设备</span></div>
-        <div class="metric"><b id="metric-meth">-</b><span>隐藏 MEth</span></div>
+        <button class="metric" data-metric="devices"><b id="metric-devices">-</b><span>设备</span></button>
+        <button class="metric" data-metric="links"><b id="metric-links">-</b><span>聚合链路</span></button>
+        <button class="metric" data-metric="down"><b id="metric-down">-</b><span>故障设备</span></button>
+        <button class="metric" data-metric="meth"><b id="metric-meth">-</b><span>隐藏 MEth</span></button>
       </div>
       <div class="section">
         <h2>链路图例</h2>
@@ -306,8 +455,8 @@
         <div class="legend-row"><span>DOWN</span><i class="legend-line" style="background:#ef4444;border-top:0"></i></div>
       </div>
       <div class="section">
-        <h2>选中对象</h2>
-        <div id="detail" class="detail">点击节点或链路查看详情。</div>
+        <h2>详情</h2>
+        <div id="detail" class="detail">点击节点、链路或上方统计查看详情。</div>
       </div>
     </aside>
   </div>
@@ -323,20 +472,25 @@
       links: [],
       showMeth: false,
       displayNodes: [],
-      displayLinks: []
+      displayLinks: [],
+      hiddenMethLinks: 0
     };
 
     const zoneDefinitions = [
-      { id: 'exit', title: '出口/专线区', subtitle: '公网、专线、防火墙', column: 'full', minH: 118 },
-      { id: 'core', title: '核心与汇聚区', subtitle: 'Core / AGG / TOR', column: 'full', minH: 142 },
-      { id: 'mgmt', title: '带内管理区', subtitle: 'MGT / 管理汇聚与接入', column: 'left', minH: 150 },
-      { id: 'oob', title: '带外管理区', subtitle: 'OOB / NETOOB', column: 'right', minH: 150 },
-      { id: 'compute', title: '智算区', subtitle: 'Calc / Leaf / Spine / ROCE', column: 'left', minH: 166 },
-      { id: 'storage', title: '存储区', subtitle: 'Storage / Stor', column: 'right', minH: 166 }
+      { id: 'mgmt', title: '带内管理区', subtitle: 'MGT：带内汇聚 / 带内接入', column: 'left', minH: 220 },
+      { id: 'oob', title: '带外管理区', subtitle: 'OOB：带外汇聚 / 带外接入', column: 'right', minH: 220 },
+      { id: 'compute', title: '智算区', subtitle: 'Calc：智算汇聚 / 智算接入', column: 'left', minH: 250 },
+      { id: 'storage', title: '存储区', subtitle: 'Stor：存储汇聚 / 存储接入', column: 'right', minH: 250 }
     ];
     let activeZones = [];
+    let activeDetail = { type: 'overview' };
 
     function $(id) { return document.getElementById(id); }
+    function esc(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[ch]);
+    }
 
     async function fetchJSON(path, fallback) {
       try {
@@ -382,6 +536,15 @@
       return !!port && (port.status === 1 || (Number(port.transmit) > 0 || Number(port.receive) > 0));
     }
 
+    function formatBytes(value) {
+      const n = Number(value) || 0;
+      if (n >= 1024 ** 4) return (n / 1024 ** 4).toFixed(2) + ' TB';
+      if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + ' GB';
+      if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(2) + ' MB';
+      if (n >= 1024) return (n / 1024).toFixed(2) + ' KB';
+      return n.toFixed(0) + ' B';
+    }
+
     function aliasFor(id) {
       const aliases = state.config.aliases || {};
       return aliases[id] || aliases['group:' + id] || id;
@@ -412,29 +575,33 @@
     function classifyZone(id, label) {
       const s = (id + ' ' + label).toLowerCase();
       if (/netoob|oob|带外/.test(s)) return 'oob';
-      if (/mgt|mgmt|manage|管理/.test(s)) return 'mgmt';
+      if (/mgt|mgmt|manage|带内|管理/.test(s)) return 'mgmt';
       if (/stor|storage|存储/.test(s)) return 'storage';
-      if (/calc|roce|leaf|spine|pod|智算/.test(s)) return 'compute';
-      if (/core|agg|tor|汇聚|核心/.test(s)) return 'core';
-      if (/fw|firewall|防火墙|public|公网|专线|ali|huoshan/.test(s)) return 'exit';
-      return 'core';
+      if (/calc|roce|智算/.test(s)) return 'compute';
+      return 'compute';
     }
 
     function roleRank(id, label) {
       const s = (id + ' ' + label).toLowerCase();
-      if (/fw|firewall|防火墙/.test(s)) return 0;
-      if (/core|核心/.test(s)) return 1;
-      if (/agg|汇聚/.test(s)) return 2;
-      if (/tor/.test(s)) return 3;
-      if (/spine/.test(s)) return 4;
-      if (/leaf/.test(s)) return 5;
-      return 6;
+      if (/spine|agg|core|汇聚|核心/.test(s)) return 1;
+      if (/leaf|tor|cleaf|sleaf|接入/.test(s)) return 2;
+      return 3;
+    }
+
+    function roleLabel(role) {
+      if (role === 1) return '汇聚';
+      if (role === 2) return '接入';
+      return '设备';
+    }
+
+    function zoneTitle(zoneId) {
+      return (zoneDefinitions.find(zone => zone.id === zoneId) || {}).title || zoneId;
     }
 
     function deviceHasDownPort(node) {
       const ports = Array.isArray(node.ports) ? node.ports : [];
       return ports.some(p => {
-        if (!state.showMeth && (isMethPortName(p.ifName) || isMethPortName(p.ifDescr) || isMethPortName(p.ifIndex))) return false;
+        if (!state.showMeth && (isMethPortName(p.ifName) || isMethPortName(p.ifDescr) || isMethPortName(p.ifAlias) || isMethPortName(p.ifIndex))) return false;
         return !portIsUp(p);
       });
     }
@@ -444,7 +611,7 @@
       nodes.forEach(node => {
         const map = new Map();
         (node.ports || []).forEach(port => {
-          [port.ifName, port.ifDescr, port.ifIndex].forEach(name => {
+          [port.ifName, port.ifDescr, port.ifAlias, port.ifIndex].forEach(name => {
             const key = portKey(name);
             if (key) map.set(key, port);
           });
@@ -454,19 +621,20 @@
       return index;
     }
 
-    function zoneTitle(zoneId) {
-      return (zoneDefinitions.find(zone => zone.id === zoneId) || {}).title || zoneId;
+    function findPortByName(nodeId, name) {
+      return state.portIndex && state.portIndex.get(nodeId) ? state.portIndex.get(nodeId).get(portKey(name)) : null;
     }
 
-    function roleLabel(role) {
-      return ['防火墙', 'Core', 'AGG', 'TOR', 'Spine', 'Leaf', '设备'][role] || '设备';
+    function effectivePorts(node) {
+      const ports = Array.isArray(node && node.ports) ? node.ports : [];
+      if (state.showMeth) return ports;
+      return ports.filter(p => !(isMethPortName(p.ifName) || isMethPortName(p.ifDescr) || isMethPortName(p.ifAlias) || isMethPortName(p.ifIndex)));
     }
 
     function autoGroupKey(node) {
       const label = aliasFor(node.id) || node.label || node.id;
       const zone = classifyZone(node.id, label);
       const role = roleRank(node.id, label);
-      if (zone === 'exit') return '';
       return `${zone}|${role}`;
     }
 
@@ -525,7 +693,7 @@
           return;
         }
         const [zone, roleStr] = key.split('|');
-        const role = Number(roleStr) || 6;
+        const role = Number(roleStr) || 3;
         const id = `auto:${key}`;
         bucket.forEach(node => memberToDisplay.set(node.id, id));
         const down = bucket.some(node => Number(node.status) !== 0 || deviceHasDownPort(node));
@@ -572,8 +740,8 @@
         const rec = linkMap.get(key);
         rec.count++;
         rec.raw.push(link);
-        const srcPort = portIndex.get(link.source)?.get(portKey(link.sourcePort));
-        const tgtPort = portIndex.get(link.target)?.get(portKey(link.targetPort));
+        const srcPort = findPortByNameFromIndex(portIndex, link.source, link.sourcePort);
+        const tgtPort = findPortByNameFromIndex(portIndex, link.target, link.targetPort);
         if (!portIsUp(srcPort) || !portIsUp(tgtPort)) rec.down = true;
         rec.speed = Math.max(rec.speed, Number(srcPort && srcPort.speed_mbps) || 0, Number(tgtPort && tgtPort.speed_mbps) || 0);
       });
@@ -584,33 +752,33 @@
       state.displayLinks = displayLinks;
       state.hiddenMethLinks = hiddenMeth;
       state.nodeById = nodeById;
+      state.portIndex = portIndex;
+      state.displayNodeById = new Map(displayNodes.map(n => [n.id, n]));
+    }
+
+    function findPortByNameFromIndex(index, nodeId, name) {
+      return index && index.get(nodeId) ? index.get(nodeId).get(portKey(name)) : null;
     }
 
     function layoutNodes() {
       const byZone = new Map(zoneDefinitions.map(zone => [zone.id, []]));
       state.displayNodes.forEach(node => {
-        if (!byZone.has(node.zone)) byZone.set('core', []);
-        byZone.get(node.zone).push(node);
+        const targetZone = byZone.has(node.zone) ? node.zone : 'compute';
+        byZone.get(targetZone).push(node);
       });
 
       function zoneHeight(def, list) {
-        const width = def.column === 'full' ? 1088 : (def.column === 'left' ? 650 : 416);
-        const cols = Math.max(2, Math.min(def.column === 'full' ? 7 : 4, Math.ceil(Math.sqrt(Math.max(list.length, 1) * (width / 160)))));
-        const rows = Math.max(1, Math.ceil(Math.max(list.length, 1) / cols));
-        return Math.max(def.minH, 68 + rows * 58);
+        const roles = [1, 2, 3].filter(role => list.some(node => node.role === role));
+        const rows = Math.max(1, roles.length);
+        const maxRoleCount = Math.max(1, ...roles.map(role => list.filter(node => node.role === role).length));
+        const extraRows = Math.max(0, Math.ceil(maxRoleCount / 4) - 1);
+        return Math.max(def.minH, 82 + (rows + extraRows) * 86);
       }
 
       const zoneById = new Map(zoneDefinitions.map(def => [def.id, def]));
       const hasNodes = id => (byZone.get(id) || []).length > 0;
       activeZones = [];
       let y = 34;
-      ['exit', 'core'].forEach(id => {
-        if (!hasNodes(id)) return;
-        const def = zoneById.get(id);
-        const h = zoneHeight(def, byZone.get(id));
-        activeZones.push({ ...def, x: 38, y, w: 1088, h });
-        y += h + 22;
-      });
       [['mgmt', 'oob'], ['compute', 'storage']].forEach(pair => {
         const defs = pair.filter(hasNodes).map(id => zoneById.get(id));
         if (!defs.length) return;
@@ -618,9 +786,9 @@
         defs.forEach(def => {
           activeZones.push({
             ...def,
-            x: def.column === 'left' ? 38 : 710,
+            x: def.column === 'left' ? 38 : 606,
             y,
-            w: def.column === 'left' ? 650 : 416,
+            w: def.column === 'left' ? 530 : 530,
             h: rowH
           });
         });
@@ -629,24 +797,29 @@
 
       activeZones.forEach(zone => {
         const list = byZone.get(zone.id) || [];
-        list.sort((a, b) => a.role - b.role || String(a.label).localeCompare(String(b.label)));
-        const cols = Math.max(2, Math.min(6, Math.ceil(Math.sqrt(list.length * (zone.w / Math.max(zone.h, 1))))));
-        const cardW = Math.min(132, Math.max(104, (zone.w - 54) / cols - 10));
-        const cardH = 50;
-        const top = zone.y + 48;
-        const left = zone.x + 20;
-        const gapX = cols > 1 ? (zone.w - 40 - cardW) / (cols - 1) : 0;
-        const rows = Math.max(1, Math.ceil(list.length / cols));
-        const gapY = rows > 1 ? Math.min(66, (zone.h - 72 - cardH) / (rows - 1)) : 0;
-        list.forEach((node, idx) => {
-          const col = idx % cols;
-          const row = Math.floor(idx / cols);
-          node.w = cardW;
-          node.h = cardH;
-          node.x = left + col * gapX;
-          node.y = top + row * Math.max(54, gapY);
-          node.cx = node.x + cardW / 2;
-          node.cy = node.y + cardH / 2;
+        const roles = [1, 2, 3].filter(role => list.some(node => node.role === role));
+        const cardW = 148;
+        const cardH = 68;
+        let cursorY = zone.y + 58;
+        roles.forEach(role => {
+          const roleNodes = list.filter(node => node.role === role).sort((a, b) => String(a.label).localeCompare(String(b.label)));
+          const cols = Math.max(1, Math.min(3, roleNodes.length));
+          const rows = Math.ceil(roleNodes.length / cols);
+          for (let row = 0; row < rows; row++) {
+            const rowNodes = roleNodes.slice(row * cols, row * cols + cols);
+            const gap = rowNodes.length > 1 ? (zone.w - 44 - cardW * rowNodes.length) / (rowNodes.length - 1) : 0;
+            const startX = rowNodes.length === 1 ? zone.x + (zone.w - cardW) / 2 : zone.x + 22;
+            rowNodes.forEach((node, idx) => {
+              node.w = cardW;
+              node.h = cardH;
+              node.x = startX + idx * (cardW + gap);
+              node.y = cursorY;
+              node.cx = node.x + cardW / 2;
+              node.cy = node.y + cardH / 2;
+            });
+            cursorY += cardH + 16;
+          }
+          cursorY += 10;
         });
       });
     }
@@ -674,17 +847,24 @@
 
     function linePath(a, b) {
       const dx = Math.abs(a.cx - b.cx);
+      const dy = Math.abs(a.cy - b.cy);
+      if (dy < 90) {
+        const midX = (a.cx + b.cx) / 2;
+        return `M${a.cx},${a.cy} C${midX},${a.cy} ${midX},${b.cy} ${b.cx},${b.cy}`;
+      }
+      if (dx < 70) {
+        const midY = (a.cy + b.cy) / 2;
+        return `M${a.cx},${a.cy} C${a.cx},${midY} ${b.cx},${midY} ${b.cx},${b.cy}`;
+      }
       const midY = (a.cy + b.cy) / 2;
-      if (dx < 70) return `M${a.cx},${a.cy} C${a.cx},${midY} ${b.cx},${midY} ${b.cx},${b.cy}`;
-      const midX = (a.cx + b.cx) / 2;
-      return `M${a.cx},${a.cy} C${midX},${a.cy} ${midX},${b.cy} ${b.cx},${b.cy}`;
+      return `M${a.cx},${a.cy} C${a.cx},${midY} ${b.cx},${midY} ${b.cx},${b.cy}`;
     }
 
     function render() {
       buildDisplayModel();
       layoutNodes();
       svg.innerHTML = '';
-      const width = Math.max(1164, svg.clientWidth || 1164);
+      const width = Math.max(1174, svg.clientWidth || 1174);
       const contentHeight = Math.max(760, ...activeZones.map(zone => zone.y + zone.h + 36));
       const height = Math.max(contentHeight, svg.clientHeight || 760);
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -706,6 +886,9 @@
         const sub = svgEl('text', { class: 'zone-sub', x: zone.x + 18, y: zone.y + 44 });
         sub.textContent = zone.subtitle;
         zoneLayer.appendChild(sub);
+        const agg = svgEl('text', { class: 'role-label', x: zone.x + zone.w - 86, y: zone.y + 26 });
+        agg.textContent = '汇聚在上';
+        zoneLayer.appendChild(agg);
       });
 
       const nodeByDisplayId = new Map(state.displayNodes.map(node => [node.id, node]));
@@ -724,11 +907,6 @@
           showLinkDetail(link, a, b);
         });
         linkLayer.appendChild(path);
-        if (link.count > 1 || link.speed > 0) {
-          const label = svgEl('text', { class: 'link-label', x: (a.cx + b.cx) / 2, y: (a.cy + b.cy) / 2 - 5, 'text-anchor': 'middle' });
-          label.textContent = `${link.count}x${link.speed ? ' / ' + link.speed + 'G' : ''}`;
-          linkLayer.appendChild(label);
-        }
       });
 
       state.displayNodes.forEach(node => {
@@ -738,17 +916,21 @@
           showNodeDetail(node);
         });
         group.appendChild(svgEl('rect', { class: 'node-rect', width: node.w, height: node.h, rx: 7 }));
-        group.appendChild(svgEl('circle', { class: 'node-dot', cx: 13, cy: 15, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
-        const title = svgEl('text', { class: 'node-title', x: 25, y: 18 });
-        title.textContent = truncate(node.label, 16);
+        group.appendChild(svgEl('rect', { class: 'node-icon-shell', x: 10, y: 10, width: 34, height: 34, rx: 7 }));
+        const iconHref = node.role === 1 ? '/topology/icons/topology-switch-agg.svg' : '/topology/icons/topology-switch-access.svg';
+        group.appendChild(svgEl('image', { href: iconHref, x: 14, y: 14, width: 26, height: 26 }));
+        group.appendChild(svgEl('circle', { class: 'node-dot', cx: 135, cy: 14, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
+        const title = svgEl('text', { class: 'node-title', x: 52, y: 24 });
+        title.textContent = truncate(node.label, 14);
         group.appendChild(title);
-        const meta = svgEl('text', { class: 'node-meta', x: 12, y: 38 });
-        meta.textContent = node.kind === 'group' ? `${node.count} 台设备` : (node.down ? 'DOWN' : 'UP');
+        const meta = svgEl('text', { class: 'node-meta', x: 52, y: 46 });
+        meta.textContent = node.kind === 'group' ? `${roleLabel(node.role)} / ${node.count} 台` : `${roleLabel(node.role)} / ${node.down ? 'DOWN' : 'UP'}`;
         group.appendChild(meta);
         nodeLayer.appendChild(group);
       });
 
       updateMetrics();
+      refreshActiveDetail();
       if (window.anime) {
         anime({ targets: '.node-card', opacity: [0, 1], translateY: [8, 0], delay: anime.stagger(12), duration: 420, easing: 'easeOutQuad' });
         anime({ targets: '.link', strokeDashoffset: [18, 0], duration: 600, easing: 'easeOutQuad' });
@@ -764,24 +946,239 @@
       $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${state.links.length} 条原始链路`;
     }
 
+    function setActiveMetric(name) {
+      document.querySelectorAll('.metric').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.metric === name);
+      });
+    }
+
+    function statusBadge(down) {
+      return `<span class="badge ${down ? 'bad' : 'ok'}">${down ? 'DOWN' : 'UP'}</span>`;
+    }
+
+    function renderNodeList(title, nodes) {
+      setActiveMetric(title.metric || '');
+      activeDetail = { type: 'metric', metric: title.metric || '' };
+      const rows = nodes.map(node => {
+        const id = esc(node.id);
+        const label = esc(node.label || node.id);
+        const meta = esc(`${zoneTitle(node.zone)} / ${roleLabel(node.role)}${node.kind === 'group' ? ' / ' + node.count + ' 台' : ''}`);
+        return `<div class="list-row" data-node-id="${id}"><div><strong>${label}</strong><small>${meta}</small></div>${statusBadge(node.down)}</div>`;
+      }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc(title.text)}</b><span class="badge">${nodes.length}</span></div><div class="list">${rows || '<div class="info-item">暂无数据</div>'}</div>`;
+      $('detail').querySelectorAll('[data-node-id]').forEach(row => {
+        row.addEventListener('click', () => {
+          const node = state.displayNodeById.get(row.dataset.nodeId);
+          if (node) showNodeDetail(node);
+        });
+      });
+    }
+
+    function rawNodeView(node) {
+      const label = aliasFor(node.id) || node.label || node.id;
+      return {
+        id: node.id,
+        label,
+        zone: classifyZone(node.id, label),
+        role: roleRank(node.id, label),
+        down: Number(node.status) !== 0 || deviceHasDownPort(node)
+      };
+    }
+
+    function renderRawDeviceList(title, rawNodes) {
+      setActiveMetric(title.metric || '');
+      activeDetail = { type: 'metric', metric: title.metric || '' };
+      const views = rawNodes.map(rawNodeView).sort((a, b) => a.zone.localeCompare(b.zone) || a.role - b.role || a.label.localeCompare(b.label));
+      const rows = views.map(node => {
+        const meta = `${zoneTitle(node.zone)} / ${roleLabel(node.role)} / ${node.id}`;
+        return `<div class="list-row" data-raw-node-id="${esc(node.id)}"><div><strong>${esc(node.label)}</strong><small>${esc(meta)}</small></div>${statusBadge(node.down)}</div>`;
+      }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc(title.text)}</b><span class="badge">${views.length}</span></div><div class="list">${rows || '<div class="info-item">暂无数据</div>'}</div>`;
+      $('detail').querySelectorAll('[data-raw-node-id]').forEach(row => {
+        row.addEventListener('click', () => showRawDeviceDetail(row.dataset.rawNodeId));
+      });
+    }
+
+    function renderLinkList() {
+      setActiveMetric('links');
+      activeDetail = { type: 'metric', metric: 'links' };
+      const rows = state.displayLinks
+        .slice()
+        .sort((a, b) => Number(b.down) - Number(a.down) || b.count - a.count)
+        .map(link => {
+          const from = state.displayNodeById.get(link.from);
+          const to = state.displayNodeById.get(link.to);
+          return `<div class="list-row" data-link-id="${esc(link.id)}"><div><strong>${esc((from && from.label) || link.from)} - ${esc((to && to.label) || link.to)}</strong><small>${link.count} 条 / 最大 ${link.speed || '-'}G</small></div>${statusBadge(link.down)}</div>`;
+        }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>聚合链路</b><span class="badge">${state.displayLinks.length}</span></div><div class="list">${rows || '<div class="info-item">暂无数据</div>'}</div>`;
+      $('detail').querySelectorAll('[data-link-id]').forEach(row => {
+        row.addEventListener('click', () => {
+          const link = state.displayLinks.find(item => item.id === row.dataset.linkId);
+          if (!link) return;
+          showLinkDetail(link, state.displayNodeById.get(link.from), state.displayNodeById.get(link.to));
+        });
+      });
+    }
+
+    function renderMethDetail() {
+      setActiveMetric('meth');
+      activeDetail = { type: 'metric', metric: 'meth' };
+      const methLinks = state.showMeth ? [] : (state.links || []).filter(link => linkUsesMeth(link));
+      const rows = methLinks.map(link => {
+        return `<tr><td>${esc(link.source)}</td><td>${esc(link.sourcePort || '-')}</td><td>${esc(link.target)}</td><td>${esc(link.targetPort || '-')}</td></tr>`;
+      }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>隐藏 MEth 链路</b><span class="badge">${state.showMeth ? 0 : state.hiddenMethLinks || 0}</span></div>
+        ${state.showMeth ? '<div class="info-item">当前已开启显示 MEth，暂无隐藏项。</div>' : ''}
+        <div class="detail-table-wrap"><table class="port-table" style="min-width:620px"><thead><tr><th>本端设备</th><th>本端接口</th><th>对端设备</th><th>对端接口</th></tr></thead><tbody>${rows || '<tr><td colspan="4">暂无隐藏 MEth 链路</td></tr>'}</tbody></table></div>`;
+    }
+
     function showNodeDetail(node) {
-      const detail = $('detail');
+      setActiveMetric('');
+      activeDetail = { type: 'node', id: node.id };
       if (node.kind === 'group') {
-        const rows = node.members.slice(0, 12).map(id => `<tr><td>${id}</td></tr>`).join('');
-        detail.innerHTML = `<b>${node.label}</b><br/>类型：设备组<br/>成员：${node.count} 台<br/>状态：${node.down ? '<span style="color:var(--bad)">DOWN</span>' : '<span style="color:var(--ok)">UP</span>'}<table><tbody>${rows}</tbody></table>`;
+        const memberRows = node.members.map(id => {
+          const raw = state.nodeById.get(id);
+          const down = raw ? Number(raw.status) !== 0 || deviceHasDownPort(raw) : false;
+          return `<div class="list-row" data-raw-node-id="${esc(id)}"><div><strong>${esc(aliasFor(id) || id)}</strong><small>${esc(id)}</small></div>${statusBadge(down)}</div>`;
+        }).join('');
+        $('detail').innerHTML = `<div class="detail-title"><b>${esc(node.label)}</b>${statusBadge(node.down)}</div>
+          <div class="info-grid">
+            <div class="info-item"><span>类型</span><b>设备组</b></div>
+            <div class="info-item"><span>分区</span><b>${esc(zoneTitle(node.zone))}</b></div>
+            <div class="info-item"><span>角色</span><b>${esc(roleLabel(node.role))}</b></div>
+            <div class="info-item"><span>成员</span><b>${node.count} 台</b></div>
+          </div>
+          <div class="list">${memberRows || '<div class="info-item">暂无成员</div>'}</div>`;
+        $('detail').querySelectorAll('[data-raw-node-id]').forEach(row => {
+          row.addEventListener('click', () => showRawDeviceDetail(row.dataset.rawNodeId));
+        });
         return;
       }
-      const raw = node.node || {};
-      const ports = (raw.ports || []).filter(p => state.showMeth || !(isMethPortName(p.ifName) || isMethPortName(p.ifDescr) || isMethPortName(p.ifIndex)));
-      const downPorts = ports.filter(p => !portIsUp(p)).length;
-      detail.innerHTML = `<b>${node.label}</b><br/>ID：${node.id}<br/>IP：${raw.ip || '-'}<br/>状态：${node.down ? '<span style="color:var(--bad)">DOWN</span>' : '<span style="color:var(--ok)">UP</span>'}<br/>端口：${ports.length}，异常：${downPorts}`;
+      showRawDeviceDetail(node.id);
+    }
+
+    function showRawDeviceDetail(id) {
+      setActiveMetric('');
+      activeDetail = { type: 'raw-device', id };
+      const raw = state.nodeById.get(id) || {};
+      const label = aliasFor(id) || raw.label || id;
+      const ports = effectivePorts(raw);
+      const downPorts = ports.filter(p => !portIsUp(p));
+      const hiddenMethPorts = Array.isArray(raw.ports) ? raw.ports.length - ports.length : 0;
+      const portRows = ports.slice().sort((a, b) => Number(!portIsUp(b)) - Number(!portIsUp(a))).slice(0, 40).map(port => {
+        const up = portIsUp(port);
+        return `<tr class="${up ? '' : 'alarm-row'}"><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="${up ? 'port-up' : 'port-down'}">${up ? 'UP' : 'DOWN'}</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td></tr>`;
+      }).join('');
+      const down = Number(raw.status) !== 0 || deviceHasDownPort(raw);
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc(label)}</b>${statusBadge(down)}</div>
+        <div class="info-grid">
+          <div class="info-item"><span>ID</span><b>${esc(id)}</b></div>
+          <div class="info-item"><span>IP</span><b>${esc(raw.ip || '-')}</b></div>
+          <div class="info-item"><span>端口</span><b>${ports.length}</b></div>
+          <div class="info-item"><span>异常端口</span><b>${downPorts.length}</b></div>
+        </div>
+        ${hiddenMethPorts > 0 ? `<div class="badge warn">已隐藏 MEth 接口 ${hiddenMethPorts}</div>` : ''}
+        <div class="detail-table-wrap"><table class="port-table" style="min-width:760px"><thead><tr><th>接口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr></thead><tbody>${portRows || '<tr><td colspan="6">暂无端口数据</td></tr>'}</tbody></table></div>`;
+    }
+
+    function buildLinkTable(link) {
+      const rows = link.raw.map(item => {
+        const srcNode = state.nodeById.get(item.source);
+        const tgtNode = state.nodeById.get(item.target);
+        const srcPort = findPortByName(item.source, item.sourcePort);
+        const tgtPort = findPortByName(item.target, item.targetPort);
+        const srcUp = portIsUp(srcPort);
+        const tgtUp = portIsUp(tgtPort);
+        const anyDown = !srcUp || !tgtUp;
+        return `<tr class="${anyDown ? 'alarm-row' : ''}">
+          <td>${esc(srcNode ? (aliasFor(srcNode.id) || srcNode.label || srcNode.id) : item.source)}</td>
+          <td>${esc(item.sourcePort || '-')}</td>
+          <td class="${srcUp ? 'port-up' : 'port-down'}">${srcUp ? 'UP' : 'DOWN'}</td>
+          <td>${esc(srcPort ? (srcPort.speed_mbps || 0) : '-')}</td>
+          <td>${esc(srcPort ? formatBytes(srcPort.transmit || 0) : '-')}</td>
+          <td>${esc(srcPort ? formatBytes(srcPort.receive || 0) : '-')}</td>
+          <td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>
+          <td>${esc(tgtNode ? (aliasFor(tgtNode.id) || tgtNode.label || tgtNode.id) : item.target)}</td>
+          <td>${esc(item.targetPort || '-')}</td>
+          <td class="${tgtUp ? 'port-up' : 'port-down'}">${tgtUp ? 'UP' : 'DOWN'}</td>
+          <td>${esc(tgtPort ? (tgtPort.speed_mbps || 0) : '-')}</td>
+          <td>${esc(tgtPort ? formatBytes(tgtPort.transmit || 0) : '-')}</td>
+          <td>${esc(tgtPort ? formatBytes(tgtPort.receive || 0) : '-')}</td>
+          <td>${tgtPort ? Math.max(tgtPort.transmit_percent || 0, tgtPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>
+        </tr>`;
+      }).join('');
+      return `<table class="port-table">
+        <thead><tr>
+          <th>本端设备</th><th>本端接口</th><th>本端接口状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th>
+          <th>对端设备</th><th>对端接口</th><th>对端接口状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="14">无互联端口信息</td></tr>'}</tbody>
+      </table>`;
     }
 
     function showLinkDetail(link, fromNode, toNode) {
-      const sampleRows = link.raw.slice(0, 10).map(item => {
-        return `<tr><td>${item.source}</td><td>${item.sourcePort || '-'}</td><td>${item.target}</td><td>${item.targetPort || '-'}</td></tr>`;
-      }).join('');
-      $('detail').innerHTML = `<b>${fromNode.label} - ${toNode.label}</b><br/>聚合链路：${link.count}<br/>最大速率：${link.speed || '-'}G<br/>状态：${link.down ? '<span style="color:var(--bad)">DOWN</span>' : '<span style="color:var(--ok)">UP</span>'}<table><thead><tr><th>本端</th><th>接口</th><th>对端</th><th>接口</th></tr></thead><tbody>${sampleRows}</tbody></table>`;
+      setActiveMetric('');
+      activeDetail = { type: 'link', id: link.id };
+      const tableHtml = buildLinkTable(link);
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc((fromNode && fromNode.label) || link.from)} - ${esc((toNode && toNode.label) || link.to)}</b>${statusBadge(link.down)}</div>
+        <div class="info-grid">
+          <div class="info-item"><span>聚合链路</span><b>${link.count}</b></div>
+          <div class="info-item"><span>最大速率</span><b>${link.speed || '-'}G</b></div>
+          <div class="info-item"><span>本端</span><b>${esc((fromNode && fromNode.label) || link.from)}</b></div>
+          <div class="info-item"><span>对端</span><b>${esc((toNode && toNode.label) || link.to)}</b></div>
+        </div>
+        <div class="detail-actions"><button id="link-expand-toggle" class="detail-btn">展示全部列</button></div>
+        <div class="detail-table-wrap">${tableHtml}</div>`;
+      const btn = $('link-expand-toggle');
+      if (btn) btn.addEventListener('click', () => openLinkFullscreen(tableHtml));
+    }
+
+    function openLinkFullscreen(contentHtml) {
+      let fs = $('link-fs');
+      if (!fs) {
+        fs = document.createElement('div');
+        fs.id = 'link-fs';
+        fs.className = 'link-fs';
+        document.body.appendChild(fs);
+      }
+      fs.innerHTML = `<div class="detail-actions"><button id="link-fs-toggle" class="detail-btn">最小化</button></div>
+        <div class="detail-title"><b>链路信息</b></div>
+        <div class="detail-table-wrap">${contentHtml}</div>`;
+      fs.style.display = 'block';
+      const btn = $('link-fs-toggle');
+      if (btn) btn.addEventListener('click', closeLinkFullscreen);
+    }
+
+    function closeLinkFullscreen() {
+      const fs = $('link-fs');
+      if (fs) fs.style.display = 'none';
+    }
+
+    function refreshActiveDetail() {
+      if (!activeDetail || activeDetail.type === 'overview') return;
+      if (activeDetail.type === 'node') {
+        const node = state.displayNodeById && state.displayNodeById.get(activeDetail.id);
+        if (node) showNodeDetail(node);
+      } else if (activeDetail.type === 'raw-device') {
+        showRawDeviceDetail(activeDetail.id);
+      } else if (activeDetail.type === 'link') {
+        const link = state.displayLinks.find(item => item.id === activeDetail.id);
+        if (link) showLinkDetail(link, state.displayNodeById.get(link.from), state.displayNodeById.get(link.to));
+      } else if (activeDetail.type === 'metric') {
+        showMetric(activeDetail.metric);
+      }
+    }
+
+    function showMetric(metric) {
+      if (metric === 'devices') {
+        renderRawDeviceList({ text: '设备', metric }, state.topology.nodes || []);
+      } else if (metric === 'links') {
+        renderLinkList();
+      } else if (metric === 'down') {
+        renderRawDeviceList({ text: '故障设备', metric }, (state.topology.nodes || []).filter(node => Number(node.status) !== 0 || deviceHasDownPort(node)));
+      } else if (metric === 'meth') {
+        renderMethDetail();
+      }
     }
 
     async function loadAll() {
@@ -803,7 +1200,14 @@
       render();
     });
     $('reload').addEventListener('click', loadAll);
-    svg.addEventListener('click', () => { $('detail').textContent = '点击节点或链路查看详情。'; });
+    document.querySelectorAll('.metric').forEach(btn => {
+      btn.addEventListener('click', () => showMetric(btn.dataset.metric));
+    });
+    svg.addEventListener('click', () => {
+      activeDetail = { type: 'overview' };
+      setActiveMetric('');
+      $('detail').textContent = '点击节点、链路或上方统计查看详情。';
+    });
     window.addEventListener('resize', () => { window.clearTimeout(window.__modernResize); window.__modernResize = window.setTimeout(render, 120); });
     loadAll();
   </script>
