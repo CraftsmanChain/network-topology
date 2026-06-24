@@ -80,6 +80,7 @@ func main() {
 		webRoot = ".."
 	}
 	dataRoot := getDataRoot(webRoot)
+	configDir := getConfigDir()
 	// serve all files under web root (../) under /topology/web
 	topo.Static("/web", webRoot)
 	// serve icons under /topology/icons to match front-end relative paths
@@ -103,8 +104,8 @@ func main() {
 	topo.GET("/modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
 	topo.GET("/topology-modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
 
-	// expose config directory under /topology/config so frontends can fetch JSON directly
-	topo.Static("/config", filepath.Join(webRoot, "config"))
+	// expose active config directory under /topology/config so frontends can fetch JSON directly
+	topo.Static("/config", configDir)
 
 	// provide links.json and prometheus.json if present; fallback to empty JSON
 	topo.GET("/links.json", func(c *gin.Context) {
@@ -153,7 +154,12 @@ func main() {
 
 	// topology aliases for legacy paths
 	topo.GET("/topology_config.json", func(c *gin.Context) {
-		p := filepath.Join(webRoot, "config", "topology_config.json")
+		p := filepath.Join(configDir, "topology_config.json")
+		if _, err := os.Stat(p); err == nil {
+			c.File(p)
+			return
+		}
+		p = filepath.Join(webRoot, "config", "topology_config.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
 			return
@@ -161,13 +167,23 @@ func main() {
 		c.Data(http.StatusOK, "application/json", []byte("{}"))
 	})
 	topo.GET("/topology.config.json", func(c *gin.Context) {
-		p := filepath.Join(webRoot, "config", "topology.config.json")
+		p := filepath.Join(configDir, "topology.config.json")
+		if _, err := os.Stat(p); err == nil {
+			c.File(p)
+			return
+		}
+		p = filepath.Join(webRoot, "config", "topology.config.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
 			return
 		}
 		// fallback to topology_config.json
-		p2 := filepath.Join(webRoot, "config", "topology_config.json")
+		p2 := filepath.Join(configDir, "topology_config.json")
+		if _, err := os.Stat(p2); err == nil {
+			c.File(p2)
+			return
+		}
+		p2 = filepath.Join(webRoot, "config", "topology_config.json")
 		if _, err := os.Stat(p2); err == nil {
 			c.File(p2)
 			return

@@ -322,6 +322,19 @@
     .node-card {
       cursor: pointer;
       filter: drop-shadow(0 8px 14px rgba(0,0,0,.25));
+      opacity: .96;
+      transition: opacity .18s ease;
+    }
+    .node-card.dimmed {
+      opacity: .28;
+    }
+    .node-card.connected .node-rect,
+    .node-card.selected .node-rect {
+      stroke: #67e8f9;
+      stroke-width: 2;
+    }
+    .node-card.selected {
+      filter: drop-shadow(0 0 12px rgba(34, 211, 238, .5));
     }
     .node-rect {
       fill: #172033;
@@ -353,6 +366,10 @@
     .node-dot {
       stroke: rgba(255,255,255,.35);
       stroke-width: 1;
+    }
+    .node-dot.alarm {
+      fill: var(--bad);
+      animation: alarmPulse 1.8s ease-in-out infinite;
     }
     .switch-icon-body {
       stroke: rgba(224, 242, 254, .62);
@@ -391,6 +408,33 @@
     .link.down {
       opacity: .92;
       stroke-dasharray: 8 6;
+      animation: linkAlarm 1.8s ease-in-out infinite;
+    }
+    .link.dimmed,
+    .link-underlay.dimmed {
+      opacity: .12;
+    }
+    .link.connected {
+      opacity: .95;
+    }
+    .link-focus {
+      fill: none;
+      stroke-linecap: round;
+      pointer-events: stroke;
+      filter: drop-shadow(0 0 8px rgba(34, 211, 238, .55));
+      vector-effect: non-scaling-stroke;
+    }
+    .link-focus.down {
+      stroke-dasharray: 8 6;
+      animation: linkAlarm 1.8s ease-in-out infinite;
+    }
+    @keyframes alarmPulse {
+      0%, 100% { opacity: .45; }
+      50% { opacity: 1; }
+    }
+    @keyframes linkAlarm {
+      0%, 100% { opacity: .55; }
+      50% { opacity: 1; }
     }
     .loading {
       position: absolute;
@@ -454,6 +498,7 @@
         <button class="metric" data-metric="devices"><b id="metric-devices">-</b><span>设备</span></button>
         <button class="metric" data-metric="links"><b id="metric-links">-</b><span>聚合链路</span></button>
         <button class="metric" data-metric="down"><b id="metric-down">-</b><span>故障设备</span></button>
+        <button class="metric" data-metric="faults"><b id="metric-fault-links">-</b><span>故障链路</span></button>
         <button class="metric" data-metric="meth"><b id="metric-meth">-</b><span>隐藏 MEth</span></button>
       </div>
       <div class="section">
@@ -495,6 +540,8 @@
     ];
     let activeZones = [];
     let activeDetail = { type: 'overview' };
+    let selectedDisplayNodeId = '';
+    let focusLinkLayer = null;
 
     function $(id) { return document.getElementById(id); }
     function esc(value) {
@@ -759,12 +806,20 @@
 
       const nodeIds = new Set(displayNodes.map(n => n.id));
       const displayLinks = Array.from(linkMap.values()).filter(link => nodeIds.has(link.from) && nodeIds.has(link.to));
+      const displayNodeMap = new Map(displayNodes.map(n => [n.id, n]));
+      displayLinks.forEach(link => {
+        if (!link.down) return;
+        const from = displayNodeMap.get(link.from);
+        const to = displayNodeMap.get(link.to);
+        if (from) from.down = true;
+        if (to) to.down = true;
+      });
       state.displayNodes = displayNodes;
       state.displayLinks = displayLinks;
       state.hiddenMethLinks = hiddenMeth;
       state.nodeById = nodeById;
       state.portIndex = portIndex;
-      state.displayNodeById = new Map(displayNodes.map(n => [n.id, n]));
+      state.displayNodeById = displayNodeMap;
     }
 
     function findPortByNameFromIndex(index, nodeId, name) {
@@ -967,9 +1022,11 @@
       const zoneLayer = svgEl('g');
       const linkLayer = svgEl('g');
       const nodeLayer = svgEl('g');
+      focusLinkLayer = svgEl('g', { class: 'focus-link-layer' });
       svg.appendChild(zoneLayer);
       svg.appendChild(linkLayer);
       svg.appendChild(nodeLayer);
+      svg.appendChild(focusLinkLayer);
 
       activeZones.forEach(zone => {
         zoneLayer.appendChild(svgEl('rect', { class: 'zone-bg', x: zone.x, y: zone.y, width: zone.w, height: zone.h, rx: 8 }));
@@ -988,12 +1045,14 @@
         if (!a || !b) return;
         const path = svgEl('path', {
           class: 'link' + (link.down ? ' down' : ''),
+          'data-link-id': link.id,
           d: linePath(a, b),
           stroke: colorBySpeed(link.speed, link.down),
           'stroke-width': Math.min(8, 1.4 + Math.log2(link.count + 1))
         });
         const underlay = svgEl('path', {
           class: 'link-underlay',
+          'data-link-id': link.id,
           d: path.getAttribute('d'),
           'stroke-width': Math.min(12, 5.2 + Math.log2(link.count + 1))
         });
@@ -1006,14 +1065,14 @@
       });
 
       state.displayNodes.forEach(node => {
-        const group = svgEl('g', { class: `node-card ${node.kind}${node.down ? ' down' : ''}`, transform: `translate(${node.x},${node.y})` });
+        const group = svgEl('g', { class: `node-card ${node.kind}${node.down ? ' down' : ''}`, 'data-node-id': node.id, transform: `translate(${node.x},${node.y})` });
         group.addEventListener('click', ev => {
           ev.stopPropagation();
           showNodeDetail(node);
         });
         group.appendChild(svgEl('rect', { class: 'node-rect', width: node.w, height: node.h, rx: 7 }));
         appendSwitchIcon(group, node);
-        group.appendChild(svgEl('circle', { class: 'node-dot', cx: node.w - 13, cy: 14, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
+        group.appendChild(svgEl('circle', { class: 'node-dot' + (node.down ? ' alarm' : ''), cx: node.w - 13, cy: 14, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
         const title = svgEl('text', { class: 'node-title', x: node.w / 2, y: 66 });
         title.textContent = truncate(node.label, 14);
         group.appendChild(title);
@@ -1025,6 +1084,7 @@
 
       updateMetrics();
       refreshActiveDetail();
+      applySelectionHighlight();
       if (window.anime) {
         anime({ targets: '.node-card', opacity: [0, 1], delay: anime.stagger(12), duration: 420, easing: 'easeOutQuad' });
         anime({ targets: '.link', strokeDashoffset: [18, 0], duration: 600, easing: 'easeOutQuad' });
@@ -1036,8 +1096,59 @@
       $('metric-devices').textContent = rawNodes.length;
       $('metric-links').textContent = state.displayLinks.length;
       $('metric-down').textContent = rawNodes.filter(n => Number(n.status) !== 0 || deviceHasDownPort(n)).length;
+      $('metric-fault-links').textContent = state.displayLinks.filter(link => link.down).length;
       $('metric-meth').textContent = state.showMeth ? 0 : state.hiddenMethLinks || 0;
       $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${state.links.length} 条原始链路`;
+    }
+
+    function connectedSelection(id) {
+      const links = state.displayLinks.filter(link => link.from === id || link.to === id);
+      const nodes = new Set([id]);
+      links.forEach(link => {
+        nodes.add(link.from);
+        nodes.add(link.to);
+      });
+      return { links, nodes };
+    }
+
+    function applySelectionHighlight() {
+      if (!focusLinkLayer) return;
+      focusLinkLayer.innerHTML = '';
+      const selected = selectedDisplayNodeId;
+      const nodeEls = Array.from(svg.querySelectorAll('.node-card'));
+      const linkEls = Array.from(svg.querySelectorAll('.link,.link-underlay'));
+      nodeEls.forEach(el => el.classList.remove('selected', 'connected', 'dimmed'));
+      linkEls.forEach(el => el.classList.remove('connected', 'dimmed'));
+      if (!selected || !(state.displayNodeById && state.displayNodeById.has(selected))) return;
+      const conn = connectedSelection(selected);
+      nodeEls.forEach(el => {
+        const id = el.getAttribute('data-node-id');
+        if (id === selected) el.classList.add('selected');
+        else if (conn.nodes.has(id)) el.classList.add('connected');
+        else el.classList.add('dimmed');
+      });
+      linkEls.forEach(el => {
+        const id = el.getAttribute('data-link-id');
+        if (conn.links.some(link => link.id === id)) el.classList.add('connected');
+        else el.classList.add('dimmed');
+      });
+      conn.links.forEach(link => {
+        const a = state.displayNodeById.get(link.from);
+        const b = state.displayNodeById.get(link.to);
+        if (!a || !b) return;
+        const focus = svgEl('path', {
+          class: 'link-focus' + (link.down ? ' down' : ''),
+          d: linePath(a, b),
+          stroke: colorBySpeed(link.speed, link.down),
+          'stroke-width': Math.min(10, 3.6 + Math.log2(link.count + 1)),
+          'data-link-id': link.id
+        });
+        focus.addEventListener('click', ev => {
+          ev.stopPropagation();
+          showLinkDetail(link, a, b);
+        });
+        focusLinkLayer.appendChild(focus);
+      });
     }
 
     function setActiveMetric(name) {
@@ -1052,6 +1163,8 @@
 
     function renderNodeList(title, nodes) {
       setActiveMetric(title.metric || '');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
       activeDetail = { type: 'metric', metric: title.metric || '' };
       const rows = nodes.map(node => {
         const id = esc(node.id);
@@ -1081,6 +1194,8 @@
 
     function renderRawDeviceList(title, rawNodes) {
       setActiveMetric(title.metric || '');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
       activeDetail = { type: 'metric', metric: title.metric || '' };
       const views = rawNodes.map(rawNodeView).sort((a, b) => a.zone.localeCompare(b.zone) || a.role - b.role || a.label.localeCompare(b.label));
       const rows = views.map(node => {
@@ -1095,6 +1210,8 @@
 
     function renderLinkList() {
       setActiveMetric('links');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
       activeDetail = { type: 'metric', metric: 'links' };
       const rows = state.displayLinks
         .slice()
@@ -1116,6 +1233,8 @@
 
     function renderMethDetail() {
       setActiveMetric('meth');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
       activeDetail = { type: 'metric', metric: 'meth' };
       const methLinks = state.showMeth ? [] : (state.links || []).filter(link => linkUsesMeth(link));
       const rows = methLinks.map(link => {
@@ -1128,6 +1247,8 @@
 
     function showNodeDetail(node) {
       setActiveMetric('');
+      selectedDisplayNodeId = node.id;
+      applySelectionHighlight();
       activeDetail = { type: 'node', id: node.id };
       if (node.kind === 'group') {
         const memberRows = node.members.map(id => {
@@ -1159,10 +1280,10 @@
       const ports = effectivePorts(raw);
       const downPorts = ports.filter(p => !portIsUp(p));
       const hiddenMethPorts = Array.isArray(raw.ports) ? raw.ports.length - ports.length : 0;
-      const portRows = ports.slice().sort((a, b) => Number(!portIsUp(b)) - Number(!portIsUp(a))).slice(0, 40).map(port => {
-        const up = portIsUp(port);
-        return `<tr class="${up ? '' : 'alarm-row'}"><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="${up ? 'port-up' : 'port-down'}">${up ? 'UP' : 'DOWN'}</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td></tr>`;
-      }).join('');
+      const tableHtml = buildDevicePortTable(ports);
+      const sideTableHtml = buildDevicePortTable(ports.slice().sort((a, b) => Number(!portIsUp(b)) - Number(!portIsUp(a))).slice(0, 40));
+      const tableTitle = `设备端口 - ${label}`;
+      const hiddenNotice = ports.length > 40 ? `<span class="badge warn">侧栏仅显示前 40 条</span>` : '';
       const down = Number(raw.status) !== 0 || deviceHasDownPort(raw);
       $('detail').innerHTML = `<div class="detail-title"><b>${esc(label)}</b>${statusBadge(down)}</div>
         <div class="info-grid">
@@ -1171,8 +1292,18 @@
           <div class="info-item"><span>端口</span><b>${ports.length}</b></div>
           <div class="info-item"><span>异常端口</span><b>${downPorts.length}</b></div>
         </div>
-        ${hiddenMethPorts > 0 ? `<div class="badge warn">已隐藏 MEth 接口 ${hiddenMethPorts}</div>` : ''}
-        <div class="detail-table-wrap"><table class="port-table" style="min-width:760px"><thead><tr><th>接口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr></thead><tbody>${portRows || '<tr><td colspan="6">暂无端口数据</td></tr>'}</tbody></table></div>`;
+        <div class="detail-actions">${hiddenMethPorts > 0 ? `<span class="badge warn">已隐藏 MEth 接口 ${hiddenMethPorts}</span>` : ''}${hiddenNotice}<button id="device-expand-toggle" class="detail-btn">展示全部列</button></div>
+        <div class="detail-table-wrap">${sideTableHtml}</div>`;
+      const btn = $('device-expand-toggle');
+      if (btn) btn.addEventListener('click', () => openDetailFullscreen(tableTitle, tableHtml));
+    }
+
+    function buildDevicePortTable(ports) {
+      const portRows = ports.map(port => {
+        const up = portIsUp(port);
+        return `<tr class="${up ? '' : 'alarm-row'}"><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="${up ? 'port-up' : 'port-down'}">${up ? 'UP' : 'DOWN'}</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td></tr>`;
+      }).join('');
+      return `<table class="port-table" style="min-width:760px"><thead><tr><th>接口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr></thead><tbody>${portRows || '<tr><td colspan="6">暂无端口数据</td></tr>'}</tbody></table>`;
     }
 
     function buildLinkTable(link) {
@@ -1228,6 +1359,10 @@
     }
 
     function openLinkFullscreen(contentHtml) {
+      openDetailFullscreen('链路信息', contentHtml);
+    }
+
+    function openDetailFullscreen(title, contentHtml) {
       let fs = $('link-fs');
       if (!fs) {
         fs = document.createElement('div');
@@ -1236,7 +1371,7 @@
         document.body.appendChild(fs);
       }
       fs.innerHTML = `<div class="detail-actions"><button id="link-fs-toggle" class="detail-btn">最小化</button></div>
-        <div class="detail-title"><b>链路信息</b></div>
+        <div class="detail-title"><b>${esc(title)}</b></div>
         <div class="detail-table-wrap">${contentHtml}</div>`;
       fs.style.display = 'block';
       const btn = $('link-fs-toggle');
@@ -1246,6 +1381,62 @@
     function closeLinkFullscreen() {
       const fs = $('link-fs');
       if (fs) fs.style.display = 'none';
+    }
+
+    function rawLinkDown(link) {
+      if (!link) return false;
+      const srcPort = findPortByName(link.source, link.sourcePort);
+      const tgtPort = findPortByName(link.target, link.targetPort);
+      return !portIsUp(srcPort) || !portIsUp(tgtPort);
+    }
+
+    function renderFaultDetail() {
+      setActiveMetric('faults');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
+      activeDetail = { type: 'metric', metric: 'faults' };
+      const downDevices = (state.topology.nodes || []).filter(node => Number(node.status) !== 0 || deviceHasDownPort(node));
+      const downLinks = state.displayLinks.filter(link => link.down);
+      const downPortRows = [];
+      (state.topology.nodes || []).forEach(node => {
+        effectivePorts(node).forEach(port => {
+          if (!portIsUp(port)) {
+            downPortRows.push(`<tr class="alarm-row"><td>${esc(aliasFor(node.id) || node.label || node.id)}</td><td>${esc(node.id)}</td><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="port-down">DOWN</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td></tr>`);
+          }
+        });
+      });
+      const deviceRows = downDevices.map(node => {
+        const view = rawNodeView(node);
+        return `<div class="list-row" data-raw-node-id="${esc(node.id)}"><div><strong>${esc(view.label)}</strong><small>${esc(`${zoneTitle(view.zone)} / ${roleLabel(view.role)} / ${node.id}`)}</small></div>${statusBadge(true)}</div>`;
+      }).join('');
+      const linkRows = downLinks.map(link => {
+        const from = state.displayNodeById.get(link.from);
+        const to = state.displayNodeById.get(link.to);
+        return `<div class="list-row" data-link-id="${esc(link.id)}"><div><strong>${esc((from && from.label) || link.from)} - ${esc((to && to.label) || link.to)}</strong><small>${link.count} 条 / 最大 ${link.speed || '-'}G</small></div>${statusBadge(true)}</div>`;
+      }).join('');
+      const fullTable = `<table class="port-table" style="min-width:980px"><thead><tr><th>设备</th><th>ID</th><th>接口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr></thead><tbody>${downPortRows.join('') || '<tr><td colspan="8">暂无 DOWN 端口</td></tr>'}</tbody></table>`;
+      $('detail').innerHTML = `<div class="detail-title"><b>故障详情</b><span class="badge bad">${downLinks.length} 条链路</span></div>
+        <div class="info-grid">
+          <div class="info-item"><span>故障设备</span><b>${downDevices.length}</b></div>
+          <div class="info-item"><span>故障聚合链路</span><b>${downLinks.length}</b></div>
+          <div class="info-item"><span>DOWN 端口</span><b>${downPortRows.length}</b></div>
+          <div class="info-item"><span>隐藏 MEth 链路</span><b>${state.showMeth ? 0 : state.hiddenMethLinks || 0}</b></div>
+        </div>
+        <div class="detail-actions"><button id="fault-expand-toggle" class="detail-btn">展示全部列</button></div>
+        <div class="section"><h2>故障设备</h2><div class="list">${deviceRows || '<div class="info-item">暂无故障设备</div>'}</div></div>
+        <div class="section"><h2>故障链路</h2><div class="list">${linkRows || '<div class="info-item">暂无故障链路</div>'}</div></div>
+        <div class="section"><h2>DOWN 端口</h2><div class="detail-table-wrap">${fullTable}</div></div>`;
+      const btn = $('fault-expand-toggle');
+      if (btn) btn.addEventListener('click', () => openDetailFullscreen('故障端口详情', fullTable));
+      $('detail').querySelectorAll('[data-raw-node-id]').forEach(row => {
+        row.addEventListener('click', () => showRawDeviceDetail(row.dataset.rawNodeId));
+      });
+      $('detail').querySelectorAll('[data-link-id]').forEach(row => {
+        row.addEventListener('click', () => {
+          const link = state.displayLinks.find(item => item.id === row.dataset.linkId);
+          if (link) showLinkDetail(link, state.displayNodeById.get(link.from), state.displayNodeById.get(link.to));
+        });
+      });
     }
 
     function refreshActiveDetail() {
@@ -1270,6 +1461,8 @@
         renderLinkList();
       } else if (metric === 'down') {
         renderRawDeviceList({ text: '故障设备', metric }, (state.topology.nodes || []).filter(node => Number(node.status) !== 0 || deviceHasDownPort(node)));
+      } else if (metric === 'faults') {
+        renderFaultDetail();
       } else if (metric === 'meth') {
         renderMethDetail();
       }
@@ -1299,6 +1492,8 @@
     });
     svg.addEventListener('click', () => {
       activeDetail = { type: 'overview' };
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
       setActiveMetric('');
       $('detail').textContent = '点击节点、链路或上方统计查看详情。';
     });

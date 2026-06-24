@@ -7,11 +7,11 @@ Type=simple
 WorkingDirectory=/ops/web/topology-poc/server
 Environment=PORT=8281
 Environment=WEB_ROOT=/ops/web/topology-poc
-Environment=CONFIG_DIR=/ops/web/topology-poc/config
+Environment=CONFIG_DIR=/ops/web/topology/config
 Environment=DATA_ROOT=/ops/web/topology
 Environment=HOME=/root
 Environment=GOCACHE=/root/.cache/go-build
-ExecStart=/snap/bin/go run main.go
+ExecStart=/ops/web/topology-poc/server/topology-poc
 Restart=always
 RestartSec=3
 
