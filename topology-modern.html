@@ -319,6 +319,20 @@
       stroke-width: 1;
       rx: 8;
     }
+    .cluster-bg {
+      fill: rgba(15, 23, 42, .36);
+      stroke: rgba(100, 116, 139, .3);
+      stroke-width: 1;
+      stroke-dasharray: 5 5;
+    }
+    .cluster-label {
+      fill: #93c5fd;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .cluster-label.shared { fill: #cbd5e1; }
+    .cluster-label.ali { fill: #67e8f9; }
+    .cluster-label.zp { fill: #c4b5fd; }
     .node-card {
       cursor: pointer;
       filter: drop-shadow(0 8px 14px rgba(0,0,0,.25));
@@ -481,7 +495,7 @@
         <span id="subtitle">分区聚合视图</span>
       </div>
       <div class="actions">
-        <label class="toggle"><input type="checkbox" id="toggle-meth" />显示 MEth</label>
+        <label class="toggle"><input type="checkbox" id="toggle-meth" />显示管理接口</label>
         <button id="reload">刷新</button>
         <a href="/topology/">经典视图</a>
         <a href="/topology/config.html">管理后台</a>
@@ -499,7 +513,7 @@
         <button class="metric" data-metric="links"><b id="metric-links">-</b><span>聚合链路</span></button>
         <button class="metric" data-metric="down"><b id="metric-down">-</b><span>故障设备</span></button>
         <button class="metric" data-metric="faults"><b id="metric-fault-links">-</b><span>故障链路</span></button>
-        <button class="metric" data-metric="meth"><b id="metric-meth">-</b><span>隐藏 MEth</span></button>
+        <button class="metric" data-metric="meth"><b id="metric-meth">-</b><span>隐藏管理</span></button>
       </div>
       <div class="section">
         <h2>链路图例</h2>
@@ -582,8 +596,16 @@
       return /^meth/i.test(normalizeName(value));
     }
 
+    function isMgmtNumberPortName(value) {
+      return /^mgmt [0-9]+$/i.test(normalizeName(value));
+    }
+
+    function isHiddenManagementPortName(value) {
+      return isMethPortName(value) || isMgmtNumberPortName(value);
+    }
+
     function linkUsesMeth(link) {
-      return isMethPortName(link.sourcePort) || isMethPortName(link.targetPort);
+      return isHiddenManagementPortName(link.sourcePort) || isHiddenManagementPortName(link.targetPort);
     }
 
     function portKey(name) {
@@ -656,10 +678,23 @@
       return (zoneDefinitions.find(zone => zone.id === zoneId) || {}).title || zoneId;
     }
 
+    function clusterKey(id, label) {
+      const s = `${id || ''} ${label || ''}`.toLowerCase();
+      if (/\bctyun/.test(s)) return 'ali';
+      if (/\bzp/.test(s)) return 'zp';
+      return 'shared';
+    }
+
+    function clusterTitle(cluster) {
+      if (cluster === 'ali') return '阿里集群';
+      if (cluster === 'zp') return '智谱集群';
+      return '共用设备';
+    }
+
     function deviceHasDownPort(node) {
       const ports = Array.isArray(node.ports) ? node.ports : [];
       return ports.some(p => {
-        if (!state.showMeth && (isMethPortName(p.ifName) || isMethPortName(p.ifDescr) || isMethPortName(p.ifAlias) || isMethPortName(p.ifIndex))) return false;
+        if (!state.showMeth && (isHiddenManagementPortName(p.ifName) || isHiddenManagementPortName(p.ifDescr) || isHiddenManagementPortName(p.ifAlias) || isHiddenManagementPortName(p.ifIndex))) return false;
         return !portIsUp(p);
       });
     }
@@ -686,14 +721,15 @@
     function effectivePorts(node) {
       const ports = Array.isArray(node && node.ports) ? node.ports : [];
       if (state.showMeth) return ports;
-      return ports.filter(p => !(isMethPortName(p.ifName) || isMethPortName(p.ifDescr) || isMethPortName(p.ifAlias) || isMethPortName(p.ifIndex)));
+      return ports.filter(p => !(isHiddenManagementPortName(p.ifName) || isHiddenManagementPortName(p.ifDescr) || isHiddenManagementPortName(p.ifAlias) || isHiddenManagementPortName(p.ifIndex)));
     }
 
     function autoGroupKey(node) {
       const label = aliasFor(node.id) || node.label || node.id;
       const zone = classifyZone(node.id, label);
       const role = roleRank(node.id, label);
-      return `${zone}|${role}`;
+      const cluster = clusterKey(node.id, label);
+      return `${zone}|${cluster}|${role}`;
     }
 
     function buildDisplayModel() {
@@ -737,6 +773,7 @@
           id: group.id,
           label,
           zone: classifyZone(group.groupId, label),
+          cluster: clusterKey(group.groupId, label),
           role: roleRank(group.groupId, label),
           count: group.members.length,
           down,
@@ -750,15 +787,16 @@
           standalone.push(...bucket);
           return;
         }
-        const [zone, roleStr] = key.split('|');
+        const [zone, cluster, roleStr] = key.split('|');
         const role = Number(roleStr) || 3;
         const id = `auto:${key}`;
         bucket.forEach(node => memberToDisplay.set(node.id, id));
         const down = bucket.some(node => Number(node.status) !== 0 || deviceHasDownPort(node));
         displayNodes.push({
           id,
-          label: `${zoneTitle(zone)} ${roleLabel(role)}`,
+          label: `${clusterTitle(cluster)} ${roleLabel(role)}`,
           zone,
+          cluster,
           role,
           count: bucket.length,
           down,
@@ -774,6 +812,7 @@
           id: node.id,
           label,
           zone: classifyZone(node.id, label),
+          cluster: clusterKey(node.id, label),
           role: roleRank(node.id, label),
           count: 1,
           down: Number(node.status) !== 0 || deviceHasDownPort(node),
@@ -841,8 +880,13 @@
         padBottom: 24,
         colGap: 18,
         rowGap: 18,
-        roleGap: 30
+        roleGap: 30,
+        clusterGap: 18,
+        clusterLabelH: 26,
+        clusterPadX: 14,
+        clusterPadBottom: 14
       };
+      const clusterOrder = ['shared', 'ali', 'zp'];
 
       function columnsFor(width) {
         const usable = Math.max(layoutCfg.cardW, width - layoutCfg.padX * 2);
@@ -858,11 +902,26 @@
         return rows * layoutCfg.cardH + Math.max(0, rows - 1) * layoutCfg.rowGap;
       }
 
+      function clusterSections(list) {
+        return clusterOrder.map(cluster => ({
+          id: cluster,
+          title: clusterTitle(cluster),
+          nodes: list.filter(node => (node.cluster || 'shared') === cluster)
+        })).filter(section => section.nodes.length > 0);
+      }
+
+      function clusterHeight(section, width) {
+        const innerWidth = Math.max(layoutCfg.cardW, width - layoutCfg.clusterPadX * 2);
+        const roles = [1, 2, 3].filter(role => section.nodes.some(node => node.role === role));
+        const blocks = roles.map(role => roleBlockHeight(section.nodes.filter(node => node.role === role).length, innerWidth));
+        return layoutCfg.clusterLabelH + blocks.reduce((sum, h) => sum + h, 0) + Math.max(0, blocks.length - 1) * layoutCfg.roleGap + layoutCfg.clusterPadBottom;
+      }
+
       function zoneHeight(def, list) {
-        const roles = [1, 2, 3].filter(role => list.some(node => node.role === role));
         const width = def.w || 530;
-        const blocks = roles.map(role => roleBlockHeight(list.filter(node => node.role === role).length, width));
-        const contentH = layoutCfg.headerH + blocks.reduce((sum, h) => sum + h, 0) + Math.max(0, blocks.length - 1) * layoutCfg.roleGap + layoutCfg.padBottom;
+        const sections = clusterSections(list);
+        const blocks = sections.map(section => clusterHeight(section, width));
+        const contentH = layoutCfg.headerH + blocks.reduce((sum, h) => sum + h, 0) + Math.max(0, blocks.length - 1) * layoutCfg.clusterGap + layoutCfg.padBottom;
         return Math.max(def.minH, contentH);
       }
 
@@ -892,29 +951,38 @@
 
       activeZones.forEach(zone => {
         const list = byZone.get(zone.id) || [];
-        const roles = [1, 2, 3].filter(role => list.some(node => node.role === role));
-        const cols = columnsFor(zone.w);
+        const sections = clusterSections(list);
         let cursorY = zone.y + layoutCfg.headerH;
-        roles.forEach(role => {
-          const roleNodes = list.filter(node => node.role === role).sort((a, b) => String(a.label).localeCompare(String(b.label)));
-          const rows = Math.ceil(roleNodes.length / cols);
-          for (let row = 0; row < rows; row++) {
-            const rowNodes = roleNodes.slice(row * cols, row * cols + cols);
-            const rowW = rowNodes.length * layoutCfg.cardW + Math.max(0, rowNodes.length - 1) * layoutCfg.colGap;
-            const startX = zone.x + Math.max(layoutCfg.padX, (zone.w - rowW) / 2);
-            rowNodes.forEach((node, idx) => {
-              node.w = layoutCfg.cardW;
-              node.h = layoutCfg.cardH;
-              node.x = startX + idx * (layoutCfg.cardW + layoutCfg.colGap);
-              node.y = cursorY;
-              node.cx = node.x + layoutCfg.cardW / 2;
-              node.cy = node.y + layoutCfg.cardH / 2;
-              node.iconCx = node.x + layoutCfg.cardW / 2;
-              node.iconCy = node.y + 38;
-            });
-            cursorY += layoutCfg.cardH + layoutCfg.rowGap;
-          }
-          cursorY += layoutCfg.roleGap - layoutCfg.rowGap;
+        zone.sections = [];
+        sections.forEach(section => {
+          const sectionH = clusterHeight(section, zone.w);
+          const sectionBox = { ...section, x: zone.x + 12, y: cursorY, w: zone.w - 24, h: sectionH };
+          zone.sections.push(sectionBox);
+          const innerW = sectionBox.w - layoutCfg.clusterPadX * 2;
+          const cols = columnsFor(innerW);
+          let nodeY = sectionBox.y + layoutCfg.clusterLabelH;
+          [1, 2, 3].filter(role => section.nodes.some(node => node.role === role)).forEach(role => {
+            const roleNodes = section.nodes.filter(node => node.role === role).sort((a, b) => String(a.label).localeCompare(String(b.label)));
+            const rows = Math.ceil(roleNodes.length / cols);
+            for (let row = 0; row < rows; row++) {
+              const rowNodes = roleNodes.slice(row * cols, row * cols + cols);
+              const rowW = rowNodes.length * layoutCfg.cardW + Math.max(0, rowNodes.length - 1) * layoutCfg.colGap;
+              const startX = sectionBox.x + Math.max(layoutCfg.clusterPadX, (sectionBox.w - rowW) / 2);
+              rowNodes.forEach((node, idx) => {
+                node.w = layoutCfg.cardW;
+                node.h = layoutCfg.cardH;
+                node.x = startX + idx * (layoutCfg.cardW + layoutCfg.colGap);
+                node.y = nodeY;
+                node.cx = node.x + layoutCfg.cardW / 2;
+                node.cy = node.y + layoutCfg.cardH / 2;
+                node.iconCx = node.x + layoutCfg.cardW / 2;
+                node.iconCy = node.y + 38;
+              });
+              nodeY += layoutCfg.cardH + layoutCfg.rowGap;
+            }
+            nodeY += layoutCfg.roleGap - layoutCfg.rowGap;
+          });
+          cursorY += sectionH + layoutCfg.clusterGap;
         });
       });
     }
@@ -1036,6 +1104,12 @@
         const sub = svgEl('text', { class: 'zone-sub', x: zone.x + 18, y: zone.y + 44 });
         sub.textContent = zone.subtitle;
         zoneLayer.appendChild(sub);
+        (zone.sections || []).forEach(section => {
+          zoneLayer.appendChild(svgEl('rect', { class: 'cluster-bg', x: section.x, y: section.y, width: section.w, height: section.h, rx: 7 }));
+          const label = svgEl('text', { class: `cluster-label ${section.id}`, x: section.x + 12, y: section.y + 17 });
+          label.textContent = section.title;
+          zoneLayer.appendChild(label);
+        });
       });
 
       const nodeByDisplayId = new Map(state.displayNodes.map(node => [node.id, node]));
@@ -1169,7 +1243,7 @@
       const rows = nodes.map(node => {
         const id = esc(node.id);
         const label = esc(node.label || node.id);
-        const meta = esc(`${zoneTitle(node.zone)} / ${roleLabel(node.role)}${node.kind === 'group' ? ' / ' + node.count + ' 台' : ''}`);
+        const meta = esc(`${zoneTitle(node.zone)} / ${clusterTitle(node.cluster || 'shared')} / ${roleLabel(node.role)}${node.kind === 'group' ? ' / ' + node.count + ' 台' : ''}`);
         return `<div class="list-row" data-node-id="${id}"><div><strong>${label}</strong><small>${meta}</small></div>${statusBadge(node.down)}</div>`;
       }).join('');
       $('detail').innerHTML = `<div class="detail-title"><b>${esc(title.text)}</b><span class="badge">${nodes.length}</span></div><div class="list">${rows || '<div class="info-item">暂无数据</div>'}</div>`;
@@ -1188,6 +1262,7 @@
         label,
         zone: classifyZone(node.id, label),
         role: roleRank(node.id, label),
+        cluster: clusterKey(node.id, label),
         down: Number(node.status) !== 0 || deviceHasDownPort(node)
       };
     }
@@ -1199,7 +1274,7 @@
       activeDetail = { type: 'metric', metric: title.metric || '' };
       const views = rawNodes.map(rawNodeView).sort((a, b) => a.zone.localeCompare(b.zone) || a.role - b.role || a.label.localeCompare(b.label));
       const rows = views.map(node => {
-        const meta = `${zoneTitle(node.zone)} / ${roleLabel(node.role)} / ${node.id}`;
+        const meta = `${zoneTitle(node.zone)} / ${clusterTitle(node.cluster || 'shared')} / ${roleLabel(node.role)} / ${node.id}`;
         return `<div class="list-row" data-raw-node-id="${esc(node.id)}"><div><strong>${esc(node.label)}</strong><small>${esc(meta)}</small></div>${statusBadge(node.down)}</div>`;
       }).join('');
       $('detail').innerHTML = `<div class="detail-title"><b>${esc(title.text)}</b><span class="badge">${views.length}</span></div><div class="list">${rows || '<div class="info-item">暂无数据</div>'}</div>`;
@@ -1240,9 +1315,9 @@
       const rows = methLinks.map(link => {
         return `<tr><td>${esc(link.source)}</td><td>${esc(link.sourcePort || '-')}</td><td>${esc(link.target)}</td><td>${esc(link.targetPort || '-')}</td></tr>`;
       }).join('');
-      $('detail').innerHTML = `<div class="detail-title"><b>隐藏 MEth 链路</b><span class="badge">${state.showMeth ? 0 : state.hiddenMethLinks || 0}</span></div>
-        ${state.showMeth ? '<div class="info-item">当前已开启显示 MEth，暂无隐藏项。</div>' : ''}
-        <div class="detail-table-wrap"><table class="port-table" style="min-width:620px"><thead><tr><th>本端设备</th><th>本端接口</th><th>对端设备</th><th>对端接口</th></tr></thead><tbody>${rows || '<tr><td colspan="4">暂无隐藏 MEth 链路</td></tr>'}</tbody></table></div>`;
+      $('detail').innerHTML = `<div class="detail-title"><b>隐藏管理链路</b><span class="badge">${state.showMeth ? 0 : state.hiddenMethLinks || 0}</span></div>
+        ${state.showMeth ? '<div class="info-item">当前已开启显示管理接口，暂无隐藏项。</div>' : ''}
+        <div class="detail-table-wrap"><table class="port-table" style="min-width:620px"><thead><tr><th>本端设备</th><th>本端接口</th><th>对端设备</th><th>对端接口</th></tr></thead><tbody>${rows || '<tr><td colspan="4">暂无隐藏管理链路</td></tr>'}</tbody></table></div>`;
     }
 
     function showNodeDetail(node) {
@@ -1260,6 +1335,7 @@
           <div class="info-grid">
             <div class="info-item"><span>类型</span><b>设备组</b></div>
             <div class="info-item"><span>分区</span><b>${esc(zoneTitle(node.zone))}</b></div>
+            <div class="info-item"><span>集群</span><b>${esc(clusterTitle(node.cluster || 'shared'))}</b></div>
             <div class="info-item"><span>角色</span><b>${esc(roleLabel(node.role))}</b></div>
             <div class="info-item"><span>成员</span><b>${node.count} 台</b></div>
           </div>
@@ -1292,7 +1368,7 @@
           <div class="info-item"><span>端口</span><b>${ports.length}</b></div>
           <div class="info-item"><span>异常端口</span><b>${downPorts.length}</b></div>
         </div>
-        <div class="detail-actions">${hiddenMethPorts > 0 ? `<span class="badge warn">已隐藏 MEth 接口 ${hiddenMethPorts}</span>` : ''}${hiddenNotice}<button id="device-expand-toggle" class="detail-btn">展示全部列</button></div>
+        <div class="detail-actions">${hiddenMethPorts > 0 ? `<span class="badge warn">已隐藏管理接口 ${hiddenMethPorts}</span>` : ''}${hiddenNotice}<button id="device-expand-toggle" class="detail-btn">展示全部列</button></div>
         <div class="detail-table-wrap">${sideTableHtml}</div>`;
       const btn = $('device-expand-toggle');
       if (btn) btn.addEventListener('click', () => openDetailFullscreen(tableTitle, tableHtml));
@@ -1420,7 +1496,7 @@
           <div class="info-item"><span>故障设备</span><b>${downDevices.length}</b></div>
           <div class="info-item"><span>故障聚合链路</span><b>${downLinks.length}</b></div>
           <div class="info-item"><span>DOWN 端口</span><b>${downPortRows.length}</b></div>
-          <div class="info-item"><span>隐藏 MEth 链路</span><b>${state.showMeth ? 0 : state.hiddenMethLinks || 0}</b></div>
+          <div class="info-item"><span>隐藏管理链路</span><b>${state.showMeth ? 0 : state.hiddenMethLinks || 0}</b></div>
         </div>
         <div class="detail-actions"><button id="fault-expand-toggle" class="detail-btn">展示全部列</button></div>
         <div class="section"><h2>故障设备</h2><div class="list">${deviceRows || '<div class="info-item">暂无故障设备</div>'}</div></div>

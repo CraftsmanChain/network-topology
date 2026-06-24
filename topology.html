@@ -529,9 +529,17 @@ function isMethPortName(name) {
     return /^meth/i.test(String(name || '').trim());
 }
 
+function isMgmtNumberPortName(name) {
+    return /^mgmt [0-9]+$/i.test(String(name || '').trim());
+}
+
+function isHiddenManagementPortName(name) {
+    return isMethPortName(name) || isMgmtNumberPortName(name);
+}
+
 function isMethPort(port) {
     if (!port) return false;
-    return isMethPortName(port.ifName) || isMethPortName(port.ifDescr) || isMethPortName(port.ifAlias) || isMethPortName(port.ifIndex);
+    return isHiddenManagementPortName(port.ifName) || isHiddenManagementPortName(port.ifDescr) || isHiddenManagementPortName(port.ifAlias) || isHiddenManagementPortName(port.ifIndex);
 }
 
 function getEffectivePorts(ports) {
@@ -541,7 +549,7 @@ function getEffectivePorts(ports) {
 }
 
 function linkUsesMethInterface(link) {
-    return !!link && (isMethPortName(link.sourcePort) || isMethPortName(link.targetPort));
+    return !!link && (isHiddenManagementPortName(link.sourcePort) || isHiddenManagementPortName(link.targetPort));
 }
 
 function getEffectiveRawLinksForEdge(edge) {
@@ -1471,7 +1479,7 @@ function showDeviceInfo(d) {
     html += `</div>`;
 
     if (hiddenMethPorts > 0) {
-        html += `<p>已隐藏 MEth 接口: ${hiddenMethPorts}</p>`;
+        html += `<p>已隐藏管理接口: ${hiddenMethPorts}</p>`;
     }
 
     if (effectivePorts.length > 0) {
@@ -1566,7 +1574,7 @@ function showLinkInfo(edgeData) {
     const currStatusStr = forced ? (`覆盖: ${forced}`) : (isDown ? 'DOWN' : 'UP');
     html += `<p>状态: <span class="${isDown ? 'status-down' : 'status-up'}">${currStatusStr}</span></p>`;
     if (hiddenMethLinks > 0) {
-        html += `<p>已隐藏 MEth 链路: ${hiddenMethLinks}</p>`;
+        html += `<p>已隐藏管理链路: ${hiddenMethLinks}</p>`;
     }
     html += `</div>`;
     html += `<div style="margin:8px 0;"><button id="link-expand-toggle" class="edit-btn">展示全部列</button></div>`;
