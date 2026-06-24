@@ -319,12 +319,6 @@
       stroke-width: 1;
       rx: 8;
     }
-    .role-label {
-      fill: #64748b;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0;
-    }
     .node-card {
       cursor: pointer;
       filter: drop-shadow(0 8px 14px rgba(0,0,0,.25));
@@ -767,12 +761,37 @@
         byZone.get(targetZone).push(node);
       });
 
+      const layoutCfg = {
+        cardW: 148,
+        cardH: 68,
+        padX: 24,
+        headerH: 58,
+        padBottom: 24,
+        colGap: 18,
+        rowGap: 18,
+        roleGap: 30
+      };
+
+      function columnsFor(width) {
+        const usable = Math.max(layoutCfg.cardW, width - layoutCfg.padX * 2);
+        return Math.max(1, Math.floor((usable + layoutCfg.colGap) / (layoutCfg.cardW + layoutCfg.colGap)));
+      }
+
+      function roleRows(count, width) {
+        return Math.max(1, Math.ceil(count / columnsFor(width)));
+      }
+
+      function roleBlockHeight(count, width) {
+        const rows = roleRows(count, width);
+        return rows * layoutCfg.cardH + Math.max(0, rows - 1) * layoutCfg.rowGap;
+      }
+
       function zoneHeight(def, list) {
         const roles = [1, 2, 3].filter(role => list.some(node => node.role === role));
-        const rows = Math.max(1, roles.length);
-        const maxRoleCount = Math.max(1, ...roles.map(role => list.filter(node => node.role === role).length));
-        const extraRows = Math.max(0, Math.ceil(maxRoleCount / 4) - 1);
-        return Math.max(def.minH, 82 + (rows + extraRows) * 86);
+        const width = def.w || 530;
+        const blocks = roles.map(role => roleBlockHeight(list.filter(node => node.role === role).length, width));
+        const contentH = layoutCfg.headerH + blocks.reduce((sum, h) => sum + h, 0) + Math.max(0, blocks.length - 1) * layoutCfg.roleGap + layoutCfg.padBottom;
+        return Math.max(def.minH, contentH);
       }
 
       const zoneById = new Map(zoneDefinitions.map(def => [def.id, def]));
@@ -782,13 +801,17 @@
       [['mgmt', 'oob'], ['compute', 'storage']].forEach(pair => {
         const defs = pair.filter(hasNodes).map(id => zoneById.get(id));
         if (!defs.length) return;
-        const rowH = Math.max(...defs.map(def => zoneHeight(def, byZone.get(def.id))));
-        defs.forEach(def => {
+        const fullWidth = defs.length === 1;
+        const rowDefs = defs.map(def => ({
+          ...def,
+          x: fullWidth ? 38 : (def.column === 'left' ? 38 : 606),
+          w: fullWidth ? 1098 : 530
+        }));
+        const rowH = Math.max(...rowDefs.map(def => zoneHeight(def, byZone.get(def.id))));
+        rowDefs.forEach(def => {
           activeZones.push({
             ...def,
-            x: def.column === 'left' ? 38 : 606,
             y,
-            w: def.column === 'left' ? 530 : 530,
             h: rowH
           });
         });
@@ -798,28 +821,28 @@
       activeZones.forEach(zone => {
         const list = byZone.get(zone.id) || [];
         const roles = [1, 2, 3].filter(role => list.some(node => node.role === role));
-        const cardW = 148;
-        const cardH = 68;
-        let cursorY = zone.y + 58;
+        const cols = columnsFor(zone.w);
+        let cursorY = zone.y + layoutCfg.headerH;
         roles.forEach(role => {
           const roleNodes = list.filter(node => node.role === role).sort((a, b) => String(a.label).localeCompare(String(b.label)));
-          const cols = Math.max(1, Math.min(3, roleNodes.length));
           const rows = Math.ceil(roleNodes.length / cols);
           for (let row = 0; row < rows; row++) {
             const rowNodes = roleNodes.slice(row * cols, row * cols + cols);
-            const gap = rowNodes.length > 1 ? (zone.w - 44 - cardW * rowNodes.length) / (rowNodes.length - 1) : 0;
-            const startX = rowNodes.length === 1 ? zone.x + (zone.w - cardW) / 2 : zone.x + 22;
+            const rowW = rowNodes.length * layoutCfg.cardW + Math.max(0, rowNodes.length - 1) * layoutCfg.colGap;
+            const startX = zone.x + Math.max(layoutCfg.padX, (zone.w - rowW) / 2);
             rowNodes.forEach((node, idx) => {
-              node.w = cardW;
-              node.h = cardH;
-              node.x = startX + idx * (cardW + gap);
+              node.w = layoutCfg.cardW;
+              node.h = layoutCfg.cardH;
+              node.x = startX + idx * (layoutCfg.cardW + layoutCfg.colGap);
               node.y = cursorY;
-              node.cx = node.x + cardW / 2;
-              node.cy = node.y + cardH / 2;
+              node.cx = node.x + layoutCfg.cardW / 2;
+              node.cy = node.y + layoutCfg.cardH / 2;
+              node.iconCx = node.x + 27;
+              node.iconCy = node.y + 27;
             });
-            cursorY += cardH + 16;
+            cursorY += layoutCfg.cardH + layoutCfg.rowGap;
           }
-          cursorY += 10;
+          cursorY += layoutCfg.roleGap - layoutCfg.rowGap;
         });
       });
     }
@@ -846,18 +869,22 @@
     }
 
     function linePath(a, b) {
-      const dx = Math.abs(a.cx - b.cx);
-      const dy = Math.abs(a.cy - b.cy);
+      const ax = a.iconCx || a.cx;
+      const ay = a.iconCy || a.cy;
+      const bx = b.iconCx || b.cx;
+      const by = b.iconCy || b.cy;
+      const dx = Math.abs(ax - bx);
+      const dy = Math.abs(ay - by);
       if (dy < 90) {
-        const midX = (a.cx + b.cx) / 2;
-        return `M${a.cx},${a.cy} C${midX},${a.cy} ${midX},${b.cy} ${b.cx},${b.cy}`;
+        const midX = (ax + bx) / 2;
+        return `M${ax},${ay} C${midX},${ay} ${midX},${by} ${bx},${by}`;
       }
       if (dx < 70) {
-        const midY = (a.cy + b.cy) / 2;
-        return `M${a.cx},${a.cy} C${a.cx},${midY} ${b.cx},${midY} ${b.cx},${b.cy}`;
+        const midY = (ay + by) / 2;
+        return `M${ax},${ay} C${ax},${midY} ${bx},${midY} ${bx},${by}`;
       }
-      const midY = (a.cy + b.cy) / 2;
-      return `M${a.cx},${a.cy} C${a.cx},${midY} ${b.cx},${midY} ${b.cx},${b.cy}`;
+      const midY = (ay + by) / 2;
+      return `M${ax},${ay} C${ax},${midY} ${bx},${midY} ${bx},${by}`;
     }
 
     function render() {
@@ -886,9 +913,6 @@
         const sub = svgEl('text', { class: 'zone-sub', x: zone.x + 18, y: zone.y + 44 });
         sub.textContent = zone.subtitle;
         zoneLayer.appendChild(sub);
-        const agg = svgEl('text', { class: 'role-label', x: zone.x + zone.w - 86, y: zone.y + 26 });
-        agg.textContent = '汇聚在上';
-        zoneLayer.appendChild(agg);
       });
 
       const nodeByDisplayId = new Map(state.displayNodes.map(node => [node.id, node]));
