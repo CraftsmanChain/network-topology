@@ -365,17 +365,24 @@
       stroke-linecap: round;
       stroke-linejoin: round;
     }
-    .switch-icon-port {
-      fill: #f97316;
-    }
     .node-card.down .switch-icon-body {
       stroke: rgba(254, 202, 202, .8);
     }
     .link {
       fill: none;
       stroke-linecap: round;
-      opacity: .7;
+      opacity: .62;
       cursor: pointer;
+      pointer-events: stroke;
+      vector-effect: non-scaling-stroke;
+    }
+    .link-underlay {
+      fill: none;
+      stroke: rgba(8, 17, 31, .9);
+      stroke-linecap: round;
+      opacity: .82;
+      pointer-events: none;
+      vector-effect: non-scaling-stroke;
     }
     .link:hover {
       opacity: 1;
@@ -908,22 +915,30 @@
       const centerY = y + 19;
       group.appendChild(svgEl('path', { class: 'switch-icon-mark', d: `M${centerX},${y + 7}v24M${x + 12},${centerY}h24` }));
       group.appendChild(svgEl('path', { class: 'switch-icon-mark', d: `M${centerX},${y + 7}l-5,5M${centerX},${y + 7}l5,5M${centerX},${y + 31}l-5,-5M${centerX},${y + 31}l5,-5M${x + 12},${centerY}l5,-5M${x + 12},${centerY}l5,5M${x + 36},${centerY}l-5,-5M${x + 36},${centerY}l-5,5` }));
-      if (node.role === 1) {
-        [x + 11, x + 19, x + 27, x + 35].forEach(px => {
-          group.appendChild(svgEl('rect', { class: 'switch-icon-port', x: px, y: y + 27, width: 4, height: 5, rx: 1 }));
-        });
-      } else {
-        [x + 10, x + 18, x + 26, x + 34].forEach(px => {
-          group.appendChild(svgEl('circle', { class: 'switch-icon-port', cx: px, cy: y + 29, r: 2 }));
-        });
-      }
+    }
+
+    function linkEndpoint(from, to) {
+      const fx = from.iconCx || from.cx;
+      const fy = from.iconCy || from.cy;
+      const tx = to.iconCx || to.cx;
+      const ty = to.iconCy || to.cy;
+      const dx = tx - fx;
+      const dy = ty - fy;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      const iconRadius = 27;
+      return {
+        x: fx + dx / len * iconRadius,
+        y: fy + dy / len * iconRadius
+      };
     }
 
     function linePath(a, b) {
-      const ax = a.iconCx || a.cx;
-      const ay = a.iconCy || a.cy;
-      const bx = b.iconCx || b.cx;
-      const by = b.iconCy || b.cy;
+      const start = linkEndpoint(a, b);
+      const end = linkEndpoint(b, a);
+      const ax = start.x;
+      const ay = start.y;
+      const bx = end.x;
+      const by = end.y;
       const dx = Math.abs(ax - bx);
       const dy = Math.abs(ay - by);
       if (dy < 90) {
@@ -977,10 +992,16 @@
           stroke: colorBySpeed(link.speed, link.down),
           'stroke-width': Math.min(8, 1.4 + Math.log2(link.count + 1))
         });
+        const underlay = svgEl('path', {
+          class: 'link-underlay',
+          d: path.getAttribute('d'),
+          'stroke-width': Math.min(12, 5.2 + Math.log2(link.count + 1))
+        });
         path.addEventListener('click', ev => {
           ev.stopPropagation();
           showLinkDetail(link, a, b);
         });
+        linkLayer.appendChild(underlay);
         linkLayer.appendChild(path);
       });
 
