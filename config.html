@@ -36,7 +36,7 @@
       <div class="title">配置中心</div>
       <div class="actions">
         <a href="#" id="go-front-edit">前台编辑</a>
-        <a href="/" id="logout-link">退出登录</a>
+        <a href="/topology/" id="logout-link">退出登录</a>
       </div>
     </header>
 
@@ -94,6 +94,7 @@
         <h3>
           <span>拓扑编辑（devices.json + positions.json + topology_config.aliases）</span>
           <span>
+            <label class="muted" style="margin-right:8px;"><input type="checkbox" id="toggle-hidden-devices" /> 显示隐藏设备</label>
             <button class="btn" id="save-positions">保存位置</button>
             <button class="btn secondary" id="backup-positions">备份位置</button>
             <button class="btn secondary" id="toggle-hist-topology">历史配置</button>
@@ -141,6 +142,7 @@
           <span>组配置（group_rules.json）</span>
           <span>
             <button class="btn" id="new-group">新建组</button>
+            <button class="btn secondary" id="delete-groups">批量删除</button>
             <button class="btn" id="save-groups">保存</button>
             <button class="btn secondary" id="backup-groups">备份</button>
             <button class="btn secondary" id="toggle-hist-groups">历史配置</button>
@@ -164,6 +166,7 @@
     <script>
       const token = localStorage.getItem('token');
       const auth = token ? { 'Authorization': 'Bearer ' + token } : {};
+      const apiBase = '/topology/api';
 
       async function fetchJSON(url) {
         const resp = await fetch(url, { headers: { ...auth } });
@@ -176,7 +179,7 @@
       async function loadConfig(name, taId, histId) {
         const ta = document.getElementById(taId);
         const histEl = document.getElementById(histId);
-        const obj = await fetchJSON(`/api/config/${name}`);
+        const obj = await fetchJSON(`${apiBase}/config/${name}`);
         ta.value = JSON.stringify(obj, null, 2);
         await loadHistory(name, histEl);
       }
@@ -194,7 +197,7 @@
 
       async function loadHistory(name, container) {
         container.innerHTML = '';
-        const resp = await fetch(`/api/history/${name}`, { headers: { ...auth } });
+        const resp = await fetch(`${apiBase}/history/${name}`, { headers: { ...auth } });
         if (!resp.ok) { container.textContent = '无法加载历史'; return; }
         const data = await resp.json();
         const entries = data.entries || [];
@@ -207,7 +210,7 @@
           btn.addEventListener('click', async () => {
             const ok = confirm(`回滚到 ${e.timestamp} ？`);
             if (!ok) return;
-            const r = await fetch(`/api/history/${name}/rollback`, {
+            const r = await fetch(`${apiBase}/history/${name}/rollback`, {
               method: 'POST', headers: { 'Content-Type': 'application/json', ...auth },
               body: JSON.stringify({ timestamp: e.timestamp })
             });
@@ -221,7 +224,7 @@
       }
 
       async function putConfig(name, obj) {
-        const resp = await fetch(`/api/config/${name}`, {
+        const resp = await fetch(`${apiBase}/config/${name}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json', ...auth },
           body: JSON.stringify(obj)
         });
@@ -234,7 +237,7 @@
         const msg = document.getElementById(msgId);
         msg.textContent = ''; msg.className = 'msg';
         try {
-          const resp = await fetch(`/api/history/${name}/backup`, { method: 'POST', headers: { ...auth } });
+          const resp = await fetch(`${apiBase}/history/${name}/backup`, { method: 'POST', headers: { ...auth } });
           const data = await resp.json().catch(()=>({}));
           if (!resp.ok) throw new Error(data.error || '备份失败');
           msg.textContent = '备份成功'; msg.className = 'msg ok';
@@ -268,6 +271,7 @@
 
       // ===== 组配置：列表与弹窗编辑 =====
       let groupRules = { version: 1, updatedAt: '', groups: [] };
+      let selectedGroupIds = new Set();
 
       function renderGroupsList() {
         const container = document.getElementById('groups-list');
@@ -276,9 +280,22 @@
         if (!groups.length) { container.textContent = '暂无组配置'; return; }
         for (const g of groups) {
           const li = document.createElement('div'); li.className = 'list-item';
+          const leftWrap = document.createElement('div');
+          leftWrap.style.display = 'flex';
+          leftWrap.style.alignItems = 'center';
+          leftWrap.style.gap = '8px';
+          const chk = document.createElement('input');
+          chk.type = 'checkbox';
+          chk.checked = selectedGroupIds.has(g.id);
+          chk.addEventListener('change', () => {
+            if (chk.checked) selectedGroupIds.add(g.id);
+            else selectedGroupIds.delete(g.id);
+          });
           const left = document.createElement('div');
           const includeCount = (g.include_ids?.length || 0) + (g.include_regex?.length || 0);
           left.textContent = `${g.name || g.id} · ID:${g.id} · 匹配项:${includeCount}`;
+          leftWrap.appendChild(chk);
+          leftWrap.appendChild(left);
           const bar = document.createElement('div');
           const btnEdit = document.createElement('button'); btnEdit.className = 'btn'; btnEdit.textContent = '编辑';
           const btnDel = document.createElement('button'); btnDel.className = 'btn secondary'; btnDel.textContent = '删除'; btnDel.style.marginLeft = '8px';
@@ -287,11 +304,29 @@
             const ok = confirm(`删除组 ${g.name || g.id} ？`);
             if (!ok) return;
             groupRules.groups = groups.filter(x => x.id !== g.id);
+            selectedGroupIds.delete(g.id);
             renderGroupsList();
           });
           bar.appendChild(btnEdit); bar.appendChild(btnDel);
-          li.appendChild(left); li.appendChild(bar); container.appendChild(li);
+          li.appendChild(leftWrap); li.appendChild(bar); container.appendChild(li);
         }
+      }
+
+      function batchDeleteGroups() {
+        const msg = document.getElementById('msg-groups');
+        msg.textContent = ''; msg.className = 'msg';
+        const ids = Array.from(selectedGroupIds);
+        if (!ids.length) {
+          msg.textContent = '请先勾选要删除的组';
+          return;
+        }
+        const ok = confirm(`确认批量删除 ${ids.length} 个组？`);
+        if (!ok) return;
+        groupRules.groups = (groupRules.groups || []).filter(g => !selectedGroupIds.has(g.id));
+        selectedGroupIds = new Set();
+        renderGroupsList();
+        msg.textContent = `已删除 ${ids.length} 个组，请点击“保存”写入服务器`;
+        msg.className = 'msg ok';
       }
 
       function openGroupModal(g) {
@@ -368,7 +403,7 @@
         const msg = document.getElementById('msg-groups');
         msg.textContent = ''; msg.className = 'msg';
         try {
-          const resp = await fetch('/api/config/group_rules', { headers: { ...auth } });
+          const resp = await fetch('/topology/api/config/group_rules', { headers: { ...auth } });
           if (!resp.ok) {
             msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载组配置' : ('无法加载组配置（HTTP ' + resp.status + '）');
             msg.className = 'msg';
@@ -378,6 +413,7 @@
           }
           const data = await resp.json().catch(()=>({}));
           groupRules = (data && data.groups) ? data : { version: 1, updatedAt: '', groups: [] };
+          selectedGroupIds = new Set(Array.from(selectedGroupIds).filter(id => (groupRules.groups || []).some(g => g.id === id)));
           renderGroupsList();
         } catch (e) {
           msg.textContent = '加载组配置失败：' + (e && e.message ? e.message : String(e));
@@ -398,7 +434,7 @@
         const msg = document.getElementById('msg-global');
         msg.textContent = ''; msg.className = 'msg';
         try {
-          const resp = await fetch('/api/config/topology_config', { headers: { ...auth } });
+          const resp = await fetch('/topology/api/config/topology_config', { headers: { ...auth } });
           if (!resp.ok) {
             msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载全局配置' : ('无法加载全局配置（HTTP ' + resp.status + '）');
             msg.className = 'msg';
@@ -436,7 +472,7 @@
       async function saveGlobalConfig() {
         const msg = document.getElementById('msg-global');
         msg.textContent = ''; msg.className = 'msg';
-        const cfg = await fetchJSON('/api/config/topology_config');
+        const cfg = await fetchJSON('/topology/api/config/topology_config');
         const profSel = document.getElementById('config-profile');
         const activeProfile = profSel ? (profSel.value || 'main') : 'main';
         cfg.profiles = cfg.profiles || {};
@@ -466,14 +502,14 @@
         msg.textContent = ''; msg.className = 'msg';
         const name = document.getElementById('new-profile-name').value.trim();
         if (!name || name === 'main') { msg.textContent = '名称不能为空且不可为 main'; return; }
-        const cfg = await fetchJSON('/api/config/topology_config');
+        const cfg = await fetchJSON('/topology/api/config/topology_config');
         cfg.profiles = cfg.profiles || {};
         if (cfg.profiles[name]) { msg.textContent = '该拓扑已存在'; return; }
         cfg.profiles[name] = { title: name, default_icons: {}, types: {}, aliases: {}, visibility: { devices: {}, groups: {} } };
         try { await putConfig('topology_config', cfg); document.getElementById('config-profile').value = name; await refreshGlobalConfig(); msg.textContent = '已新增拓扑'; msg.className = 'msg ok'; }
         catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
         try {
-          const pos = await fetchJSON('/api/config/positions');
+          const pos = await fetchJSON('/topology/api/config/positions');
           pos.profiles = pos.profiles || {}; pos.profiles[name] = pos.profiles[name] || { nodes: {} };
           await putConfig('positions', pos);
         } catch (e) { }
@@ -485,7 +521,7 @@
         const profSel = document.getElementById('config-profile');
         const active = profSel ? (profSel.value || 'main') : 'main';
         if (active === 'main') { msg.textContent = '主拓扑不可删除'; return; }
-        const cfg = await fetchJSON('/api/config/topology_config');
+        const cfg = await fetchJSON('/topology/api/config/topology_config');
         cfg.profiles = cfg.profiles || {};
         if (!cfg.profiles[active]) { msg.textContent = '当前拓扑不存在'; return; }
         delete cfg.profiles[active];
@@ -493,7 +529,7 @@
         try { await putConfig('topology_config', cfg); }
         catch (e) { msg.textContent = e.message; msg.className = 'msg'; return; }
         try {
-          const pos = await fetchJSON('/api/config/positions');
+          const pos = await fetchJSON('/topology/api/config/positions');
           if (pos && pos.profiles && pos.profiles[active]) { delete pos.profiles[active]; await putConfig('positions', pos); }
         } catch (e) { }
         document.getElementById('config-profile').value = 'main';
@@ -504,14 +540,14 @@
 
       // 全局：拓扑标题配置
       async function refreshGlobalTitle() {
-        const cfg = await fetchJSON('/api/config/topology_config');
+        const cfg = await fetchJSON('/topology/api/config/topology_config');
         document.getElementById('topo-title').value = (cfg && cfg.title) ? String(cfg.title) : '';
       }
 
       async function saveGlobalTitle() {
         const msg = document.getElementById('msg-global');
         msg.textContent = ''; msg.className = 'msg';
-        const cfg = await fetchJSON('/api/config/topology_config');
+        const cfg = await fetchJSON('/topology/api/config/topology_config');
         const title = document.getElementById('topo-title').value.trim();
         cfg.title = title;
         try { await putConfig('topology_config', cfg); msg.textContent = '保存成功'; msg.className = 'msg ok'; localStorage.setItem('topo_config_updated', String(Date.now())); }
@@ -523,8 +559,8 @@
       async function refreshTopology() {
         const msgElTopo = document.getElementById('msg-topology');
         msgElTopo.textContent = ''; msgElTopo.className = 'msg';
-        const devices = await fetchJSON('/devices.json');
-        let pos = await fetchJSON('/api/config/positions');
+        const devices = await fetchJSON('/topology/devices.json');
+        let pos = await fetchJSON('/topology/api/config/positions');
         // 本地缓存回退：服务不可用或未登录时，从 localStorage 读取
         if (!pos || !pos.nodes || Object.keys(pos.nodes || {}).length === 0) {
           try {
@@ -540,15 +576,14 @@
             }
           } catch (e) { /* ignore */ }
         }
-        const cfgResp = await fetch('/api/config/topology_config', { headers: { ...auth } });
-        const grResp = await fetch('/api/config/group_rules', { headers: { ...auth } });
+        const cfgResp = await fetch('/topology/api/config/topology_config', { headers: { ...auth } });
+        const grResp = await fetch('/topology/api/config/group_rules', { headers: { ...auth } });
         if (!cfgResp.ok || !grResp.ok) {
           msgElTopo.textContent = '拓扑相关配置加载失败：' + (!cfgResp.ok ? ('topology_config ' + cfgResp.status) : '') + (!grResp.ok ? (' group_rules ' + grResp.status) : '');
           msgElTopo.className = 'msg';
         }
         const cfg = await cfgResp.json().catch(()=>({}));
         const gr = await grResp.json().catch(()=>({}));
-        aliases = cfg.aliases || {};
         const groups = (gr && gr.groups) ? gr.groups : [];
         const defaultGroupIcon = (cfg.default_icons && cfg.default_icons.group) || 'icons/sigle-sw.png';
         const membersByGroup = {};
@@ -562,22 +597,44 @@
         const list = Array.isArray(devices) ? devices : Object.values(devices || {});
         const profSel2 = document.getElementById('config-profile');
         const activeProfile2 = profSel2 ? (profSel2.value || 'main') : 'main';
+        const profCfg = (activeProfile2 === 'main') ? {} : (((cfg.profiles || {})[activeProfile2]) || {});
+        aliases = (activeProfile2 === 'main') ? (cfg.aliases || {}) : (profCfg.aliases || {});
+        const cfgType = (activeProfile2 === 'main') ? (cfg.types || {}) : (profCfg.types || {});
+        const visibility = (activeProfile2 === 'main') ? (cfg.visibility || {}) : (profCfg.visibility || {});
+        const showHidden = !!(document.getElementById('toggle-hidden-devices') && document.getElementById('toggle-hidden-devices').checked);
+        const deviceVisibility = (visibility && visibility.devices) || {};
         const posNodes = (activeProfile2 === 'main') ? (pos.nodes || {}) : (((pos.profiles && pos.profiles[activeProfile2] && pos.profiles[activeProfile2].nodes) || {}));
+        const explicitNodeIds = new Set([
+          ...Object.keys(aliases || {}),
+          ...Object.keys(cfgType || {}),
+          ...Object.keys(posNodes || {}),
+          ...Object.keys(deviceVisibility)
+        ]);
+        currentPositions = {};
         const nodes = [];
         for (const d of list) {
           const id = d.id || d.device_id || d.name || String(d);
           const label = aliases[id] || d.name || id;
           const p = posNodes[id] || {};
+          const nodeVisible = deviceVisibility[id] !== false;
           // 分配到组：若匹配则暂不显示为单节点
           const gMatched = groups.find(g => matches(g, id, d.name || ''));
           if (gMatched) {
+            if (!showHidden && !nodeVisible) {
+              continue;
+            }
             const gid = gMatched.id;
             if (!membersByGroup[gid]) membersByGroup[gid] = [];
             membersByGroup[gid].push({ id, label });
             continue;
           }
+          if (!explicitNodeIds.has(id)) {
+            continue;
+          }
+          if (!showHidden && !nodeVisible) {
+            continue;
+          }
           // 使用与首页一致的设备图标样式
-          const cfgType = cfg.types || {};
           const t = cfgType[id] || 'switch';
           const dicons = (cfg && cfg.default_icons) || {};
           const img = (t === 'core_switch') ? (dicons.core_switch || 'icons/core.png') : (t === 'firewall') ? (dicons.firewall || 'icons/firewall.png') : (dicons.device || 'icons/sw.png');
@@ -612,7 +669,7 @@
           document.getElementById('node-name').value = aliases[n.id] || n.label || '';
           // 加载类型
           try {
-            const cfgAll = await fetchJSON('/api/config/topology_config');
+            const cfgAll = await fetchJSON('/topology/api/config/topology_config');
             const profSel = document.getElementById('config-profile');
             const activeProfile = profSel ? (profSel.value || 'main') : 'main';
             const cfgType = (activeProfile === 'main') ? (cfgAll.types || {}) : (((cfgAll.profiles && cfgAll.profiles[activeProfile] && cfgAll.profiles[activeProfile].types) || {}));
@@ -620,7 +677,7 @@
           } catch (e) { document.getElementById('node-type').value = 'switch'; }
           // 加载可见性并设置复选框
           try {
-            const cfgVisWrap = await fetchJSON('/api/config/topology_config');
+            const cfgVisWrap = await fetchJSON('/topology/api/config/topology_config');
             const profSel = document.getElementById('config-profile');
             const activeProfile = profSel ? (profSel.value || 'main') : 'main';
             const vis = (activeProfile === 'main') ? ((cfgVisWrap && cfgVisWrap.visibility) || {}) : (((cfgVisWrap && cfgVisWrap.profiles && cfgVisWrap.profiles[activeProfile] && cfgVisWrap.profiles[activeProfile].visibility) || {}));
@@ -662,7 +719,7 @@
             // 兜底：使用当前累计的拖拽位置
             out = { version: 1, nodes: currentPositions };
           }
-          const prev = await fetchJSON('/api/config/positions');
+          const prev = await fetchJSON('/topology/api/config/positions');
           const profSel = document.getElementById('config-profile');
           const activeProfile = profSel ? (profSel.value || 'main') : 'main';
           const next = { ...(prev || {}), version: 1, updatedAt: new Date().toISOString() };
@@ -694,7 +751,7 @@
         const id = document.getElementById('node-id').value;
         if (!id) return;
         const name = document.getElementById('node-name').value.trim();
-        const cfg = await fetchJSON('/api/config/topology_config');
+        const cfg = await fetchJSON('/topology/api/config/topology_config');
         const profSel = document.getElementById('config-profile');
         const activeProfile = profSel ? (profSel.value || 'main') : 'main';
         if (activeProfile === 'main') {
@@ -714,7 +771,7 @@
         const id = document.getElementById('node-id').value;
         if (!id) return;
         const type = document.getElementById('node-type').value;
-        const cfg = await fetchJSON('/api/config/topology_config');
+        const cfg = await fetchJSON('/topology/api/config/topology_config');
         const profSel = document.getElementById('config-profile');
         const activeProfile = profSel ? (profSel.value || 'main') : 'main';
         if (activeProfile === 'main') {
@@ -734,7 +791,7 @@
         const id = document.getElementById('node-id').value;
         if (!id) return;
         const visible = !!document.getElementById('node-visible').checked;
-        const cfg = await fetchJSON('/api/config/topology_config');
+        const cfg = await fetchJSON('/topology/api/config/topology_config');
         const profSel = document.getElementById('config-profile');
         const activeProfile = profSel ? (profSel.value || 'main') : 'main';
         const target = (function(){
@@ -756,7 +813,7 @@
           target.devices = target.devices || {};
           target.devices[id] = visible;
         }
-        try { await putConfig('topology_config', cfg); document.getElementById('msg-topology').textContent = '显示开关已保存'; document.getElementById('msg-topology').className = 'msg ok'; localStorage.setItem('topo_config_updated', String(Date.now())); }
+        try { await putConfig('topology_config', cfg); document.getElementById('msg-topology').textContent = '显示开关已保存'; document.getElementById('msg-topology').className = 'msg ok'; localStorage.setItem('topo_config_updated', String(Date.now())); await refreshTopology(); }
         catch (e) { document.getElementById('msg-topology').textContent = e.message; document.getElementById('msg-topology').className = 'msg'; }
       }
 
@@ -771,7 +828,7 @@
       const profSelectEl = document.getElementById('config-profile');
       if (profSelectEl) profSelectEl.addEventListener('change', () => { refreshGlobalConfig(); refreshTopology(); });
       // 前台编辑入口：设置 edit_mode 并跳转首页编辑
-      document.getElementById('go-front-edit').addEventListener('click', (e) => { e.preventDefault(); try { localStorage.setItem('edit_mode', '1'); } catch (e) {} window.location.href = '/?edit=1'; });
+      document.getElementById('go-front-edit').addEventListener('click', (e) => { e.preventDefault(); try { localStorage.setItem('edit_mode', '1'); } catch (e) {} window.location.href = '/topology/?edit=1'; });
       // 退出登录：清除令牌与编辑标记后跳转登录页
       const logoutLink = document.getElementById('logout-link');
       if (logoutLink) {
@@ -782,7 +839,7 @@
             localStorage.removeItem('token_time');
             localStorage.removeItem('edit_mode');
           } catch (err) {}
-          window.location.href = '/';
+          window.location.href = '/topology/';
         });
       }
       document.getElementById('save-positions').addEventListener('click', () => savePositions());
@@ -793,7 +850,9 @@
       document.getElementById('save-node-prop').addEventListener('click', () => saveNodeProp());
       document.getElementById('save-node-type').addEventListener('click', () => saveNodeType());
       document.getElementById('save-node-visible').addEventListener('click', () => saveNodeVisible());
+      document.getElementById('toggle-hidden-devices').addEventListener('change', () => refreshTopology());
       document.getElementById('save-groups').addEventListener('click', () => saveGroupsToJSON());
+      document.getElementById('delete-groups').addEventListener('click', () => batchDeleteGroups());
       document.getElementById('backup-groups').addEventListener('click', () => backupConfig('group_rules', 'msg-groups', 'hist-groups'));
       document.getElementById('toggle-hist-groups').addEventListener('click', () => toggleHistory('group_rules', 'hist-groups'));
       document.getElementById('refresh-groups').addEventListener('click', () => refreshGroupsUI());
@@ -801,7 +860,7 @@
       // 未登录禁用保存按钮
       const setSavesEnabled = (enabled) => {
         // 允许“保存位置”在未登录时也可用（写入本地缓存兜底）
-        const ids = ['go-front-edit','save-global-config','backup-global-config','toggle-hist-global','backup-positions','toggle-hist-topology','fullscreen-topology','save-node-prop','save-node-type','save-node-visible','save-groups','backup-groups','toggle-hist-groups'];
+        const ids = ['go-front-edit','save-global-config','backup-global-config','toggle-hist-global','backup-positions','toggle-hist-topology','fullscreen-topology','save-node-prop','save-node-type','save-node-visible','save-groups','delete-groups','backup-groups','toggle-hist-groups'];
         ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !enabled; });
       };
       setSavesEnabled(!!token);

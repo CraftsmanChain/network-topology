@@ -846,7 +846,7 @@ document.getElementById('admin-mode-toggle').addEventListener('click', () => {
       return;
     }
   } catch (e) { /* ignore */ }
-  window.location.href = '/login.html';
+  window.location.href = '/topology/login.html';
 });
 document.getElementById('close-admin-modal').addEventListener('click', hideAdminModal);
 document.getElementById('admin-backdrop').addEventListener('click', hideAdminModal);
@@ -995,12 +995,12 @@ window.addEventListener('storage', async (e) => {
       // 读取原有 positions 以合并不同 profile 的布局
       let prev = null;
       try {
-        const r = await fetch('/api/config/positions');
+        const r = await fetch('/topology/api/config/positions');
         if (r && r.ok) prev = await r.json().catch(()=>null);
       } catch (e) { /* ignore */ }
       if (!prev) {
         try {
-          const r2 = await fetch('/config/positions.json');
+          const r2 = await fetch('/topology/config/positions.json');
           if (r2 && r2.ok) prev = await r2.json().catch(()=>null);
         } catch (e) { /* ignore */ }
       }
@@ -1117,7 +1117,7 @@ window.addEventListener('storage', async (e) => {
       localStorage.removeItem('token');
       localStorage.removeItem('token_time');
     } catch (e) {}
-    window.location.href = '/';
+    window.location.href = '/topology/';
   };
   if (exitBtn) exitBtn.addEventListener('click', exitFrontEdit);
   window.exitFrontEdit = exitFrontEdit;
@@ -1135,12 +1135,12 @@ async function saveDeviceVisibility(deviceId, visible) {
   const auth = token ? { 'Authorization': 'Bearer ' + token } : {};
   let cfg = null;
   try {
-    const r = await fetch('/api/config/topology_config', { headers: { ...auth } });
+    const r = await fetch('/topology/api/config/topology_config', { headers: { ...auth } });
     if (r && r.ok) cfg = await r.json().catch(()=>null);
   } catch (e) { /* ignore */ }
   if (!cfg) {
     try {
-      const r2 = await fetch('/config/topology_config.json');
+      const r2 = await fetch('/topology/config/topology_config.json');
       if (r2 && r2.ok) cfg = await r2.json().catch(()=>null);
     } catch (e) { /* ignore */ }
   }
@@ -1174,7 +1174,7 @@ async function saveDeviceVisibility(deviceId, visible) {
   }
   // 试图写回后端；若失败则写入本地缓存
   try {
-    const wr = await fetch('/api/config/topology_config', {
+    const wr = await fetch('/topology/api/config/topology_config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json', ...auth },
       body: JSON.stringify(cfg)
     });
@@ -1219,10 +1219,10 @@ function resolveIconUrl(icon) {
     if (!icon) return icon;
     // 外链或绝对路径直接返回
     if (/^(https?:)?\/\//.test(icon)) return icon;
-    if (icon.startsWith('/web/')) return icon;
+    if (icon.startsWith('/topology/web/')) return icon;
     // 统一前缀到 /web 下的静态目录（server/main.go 将 webRoot 挂载到 /web）
     const normalized = icon.replace(/^\.\/?/, '');
-    return '/web/' + normalized;
+    return '/topology/web/' + normalized;
 }
 
 // 获取节点图标
@@ -1598,7 +1598,7 @@ function showLinkInfo(edgeData) {
                     const val = sel.value;
                     if (!val) { delete lo.status[undirectedKey]; } else { lo.status[undirectedKey] = val; }
                     const token = localStorage.getItem('token') || '';
-                    const res = await fetch('/api/config/link_overrides', {
+                    const res = await fetch('/topology/api/config/link_overrides', {
                         method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': token ? ('Bearer ' + token) : '' },
                         body: JSON.stringify(lo)
                     });
@@ -2284,7 +2284,7 @@ async function loadTopology() {
         await loadLinkInfo();
         // 加载连线覆盖配置（优先后端，可回退静态），并缓存到全局
         try {
-            let res = await fetch('/api/config/link_overrides').catch(()=>null);
+            let res = await fetch('/topology/api/config/link_overrides').catch(()=>null);
             if (!(res && res.ok)) { res = await fetch('config/link_overrides.json').catch(()=>null); }
             const lo = res && res.ok ? await res.json() : DEFAULTS.linkOverrides;
             const status = (lo && typeof lo === 'object' && lo.status && typeof lo.status === 'object') ? lo.status : {};
@@ -2303,7 +2303,7 @@ async function loadTopology() {
             if (groupRulesCache) return groupRulesCache;
             // 优先读取后端 API；失败则回退到静态文件 /config/group_rules.json
             try {
-                const r = await fetch('/api/config/group_rules?t=' + Date.now(), { cache: 'no-store' });
+                const r = await fetch('/topology/api/config/group_rules?t=' + Date.now(), { cache: 'no-store' });
                 if (r && r.ok) {
                     const json = await r.json();
                     groupRulesCache = json || { groups: [] };
@@ -2311,7 +2311,7 @@ async function loadTopology() {
                 }
             } catch (e) { /* ignore */ }
             try {
-                const rs = await fetch('/config/group_rules.json?t=' + Date.now(), { cache: 'no-store' });
+                const rs = await fetch('/topology/config/group_rules.json?t=' + Date.now(), { cache: 'no-store' });
                 if (rs && rs.ok) {
                     const js = await rs.json();
                     groupRulesCache = js || { groups: [] };
@@ -2342,7 +2342,7 @@ async function loadTopology() {
         // 若 topology.json 不可用，回退到 devices.json（仅节点，便于兜底展示）
         if (!data || !data.nodes) {
             try {
-                const devRes = await fetch('/devices.json');
+                const devRes = await fetch('/topology/devices.json');
                 const devData = await devRes.json();
                 if (Array.isArray(devData) && devData.length > 0) {
                     await renderDevicesFallback(devData);
@@ -2378,8 +2378,8 @@ async function loadTopology() {
         let savedPositions = {};
         const activeProfile = getActiveProfileName(window.__TOPO_CFG || DEFAULTS.topology);
         try {
-            let posRes = await fetch('/api/config/positions').catch(()=>null);
-            if (!(posRes && posRes.ok)) { posRes = await fetch('/config/positions.json').catch(()=>null); }
+            let posRes = await fetch('/topology/api/config/positions').catch(()=>null);
+            if (!(posRes && posRes.ok)) { posRes = await fetch('/topology/config/positions.json').catch(()=>null); }
             if (posRes && posRes.ok) {
                 const posJson = await posRes.json();
                 if (activeProfile === 'main') {
@@ -2779,8 +2779,8 @@ async function loadTopology() {
         };
         // 刷新后强制应用已保存位置（覆盖规划位置）
         try {
-            let pr = await fetch('/api/config/positions').catch(()=>null);
-            if (!(pr && pr.ok)) { pr = await fetch('/config/positions.json').catch(()=>null); }
+            let pr = await fetch('/topology/api/config/positions').catch(()=>null);
+            if (!(pr && pr.ok)) { pr = await fetch('/topology/config/positions.json').catch(()=>null); }
             const pj = pr && pr.ok ? await pr.json() : null;
             const activeName = getActiveProfileName(window.__TOPO_CFG || DEFAULTS.topology);
             let map = {};
@@ -3164,8 +3164,8 @@ async function loadTopology() {
 async function renderDevicesFallback(devices) {
     // 确保加载 links.json，以便边点击时能显示链路详情
     try { await loadLinkInfo(); } catch (e) {}
-    let posRes = await fetch('/api/config/positions').catch(()=>null);
-    if (!(posRes && posRes.ok)) { posRes = await fetch('/config/positions.json').catch(()=>null); }
+    let posRes = await fetch('/topology/api/config/positions').catch(()=>null);
+    if (!(posRes && posRes.ok)) { posRes = await fetch('/topology/config/positions.json').catch(()=>null); }
     const pos = posRes && posRes.ok ? await posRes.json() : {};
     const cfg = window.__TOPO_CFG || DEFAULTS.topology || {};
     // 按类型驱动图标：未配置类型默认“交换机”，使用 device / device_bad
@@ -3522,9 +3522,9 @@ loadTopology();
         var tStr = localStorage.getItem('token_time');
         var t = tStr ? Number(tStr) : 0;
         var withinOneHour = !!(token && t && (Date.now() - t < 60 * 60 * 1000));
-        window.location.href = withinOneHour ? '/config.html' : '/login.html';
+        window.location.href = withinOneHour ? '/topology/config.html' : '/topology/login.html';
       } catch (e) {
-        window.location.href = '/login.html';
+        window.location.href = '/topology/login.html';
       }
     });
   }

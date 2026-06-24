@@ -13,12 +13,12 @@
   <body>
     <div class="center">
       <div>正在打开以太网拓扑视图…</div>
-      <div><a href="/">若未跳转，点击进入拓扑</a></div>
+      <div><a href="/topology/">若未跳转，点击进入拓扑</a></div>
     </div>
     <script>
       // 以太网拓扑：设置本地 profile 并跳转到拓扑页
       try { localStorage.setItem('active_topology', 'ethernet'); } catch (e) {}
-      try { window.location.replace('/?profile=ethernet'); } catch (e) { window.location.href = '/?profile=ethernet'; }
+      try { window.location.replace('/topology/?profile=ethernet'); } catch (e) { window.location.href = '/topology/?profile=ethernet'; }
     </script>
   </body>
 </html>

@@ -34,7 +34,7 @@ func main() {
 		}
 		p := c.Request.URL.Path
 		// Long cache for static assets (icons/images)
-		if strings.HasPrefix(p, "/icons/") || strings.HasPrefix(p, "/topology/icons/") ||
+		if strings.HasPrefix(p, "/topology/icons/") ||
 			strings.HasSuffix(p, ".png") || strings.HasSuffix(p, ".jpg") || strings.HasSuffix(p, ".jpeg") || strings.HasSuffix(p, ".svg") {
 			c.Writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			return
@@ -53,19 +53,22 @@ func main() {
 		c.Writer.Header().Set("Cache-Control", "public, max-age=300")
 	})
 
+	// All routes grouped under /topology
+	topo := r.Group("/topology")
+
 	// health
-	r.GET("/api/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	topo.GET("/api/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
 	// login
-	r.POST("/api/login", loginHandler)
+	topo.POST("/api/login", loginHandler)
 
 	// config read endpoints
-	r.GET("/api/config/missing", missingHandler)
-	r.GET("/api/config/:name", getConfigHandler)
+	topo.GET("/api/config/missing", missingHandler)
+	topo.GET("/api/config/:name", getConfigHandler)
 
 	// protected endpoints
 	secret := getJWTSecret()
-	api := r.Group("/api", AuthMiddleware([]byte(secret)))
+	api := topo.Group("/api", AuthMiddleware([]byte(secret)))
 	api.PUT("/config/:name", putConfigHandler)
 	api.GET("/history/:name", listHistoryHandler)
 	api.POST("/history/:name/rollback", rollbackHistoryHandler)
@@ -76,31 +79,32 @@ func main() {
 	if webRoot == "" {
 		webRoot = ".."
 	}
-	// serve all files under web root (../) under /web to avoid wildcard conflict
-	r.Static("/web", webRoot)
-	// serve icons under /icons to match front-end relative paths
-	r.Static("/icons", filepath.Join(webRoot, "icons"))
-	// provide /topology/* static alias so relative fetches under /topology/topology.html work
-	r.Static("/topology", webRoot)
+	// serve all files under web root (../) under /topology/web
+	topo.Static("/web", webRoot)
+	// serve icons under /topology/icons to match front-end relative paths
+	topo.Static("/icons", filepath.Join(webRoot, "icons"))
+
 	// alias legacy paths to topology.html to ensure local preview
-	r.GET("/zg-debug.html", func(c *gin.Context) {
+	topo.GET("/zg-debug.html", func(c *gin.Context) {
 		c.File(filepath.Join(webRoot, "topology.html"))
 	})
 	// explicit legacy route for zp-debug.html
-	r.GET("/zp-debug.html", func(c *gin.Context) {
+	topo.GET("/zp-debug.html", func(c *gin.Context) {
 		c.File(filepath.Join(webRoot, "topology.html"))
 	})
 	// alias login.html and config.html for convenience
-	r.GET("/login.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "login.html")) })
-	r.GET("/config.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "config.html")) })
+	topo.GET("/login.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "login.html")) })
+	topo.GET("/config.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "config.html")) })
 	// default root serves topology.html for convenience
-	r.GET("/", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
+	// also serve /topology.html directly
+	topo.GET("/topology.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
 
-	// expose config directory under /config so frontends can fetch JSON directly
-	r.Static("/config", filepath.Join(webRoot, "config"))
+	// expose config directory under /topology/config so frontends can fetch JSON directly
+	topo.Static("/config", filepath.Join(webRoot, "config"))
 
 	// provide links.json and prometheus.json if present; fallback to empty JSON
-	r.GET("/links.json", func(c *gin.Context) {
+	topo.GET("/links.json", func(c *gin.Context) {
 		p := filepath.Join(webRoot, "links.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
@@ -108,7 +112,7 @@ func main() {
 		}
 		c.Data(http.StatusOK, "application/json", []byte("{}"))
 	})
-	r.GET("/prometheus.json", func(c *gin.Context) {
+	topo.GET("/prometheus.json", func(c *gin.Context) {
 		p := filepath.Join(webRoot, "prometheus.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
@@ -118,7 +122,7 @@ func main() {
 	})
 
 	// devices.json: serve if present at root or under config; fallback to empty list
-	r.GET("/devices.json", func(c *gin.Context) {
+	topo.GET("/devices.json", func(c *gin.Context) {
 		candidates := []string{
 			filepath.Join(webRoot, "devices.json"),
 			filepath.Join(webRoot, "config", "devices.json"),
@@ -133,7 +137,7 @@ func main() {
 	})
 
 	// topology aliases for legacy paths
-	r.GET("/topology_config.json", func(c *gin.Context) {
+	topo.GET("/topology_config.json", func(c *gin.Context) {
 		p := filepath.Join(webRoot, "config", "topology_config.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
@@ -141,7 +145,7 @@ func main() {
 		}
 		c.Data(http.StatusOK, "application/json", []byte("{}"))
 	})
-	r.GET("/topology.config.json", func(c *gin.Context) {
+	topo.GET("/topology.config.json", func(c *gin.Context) {
 		p := filepath.Join(webRoot, "config", "topology.config.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
@@ -155,7 +159,7 @@ func main() {
 		}
 		c.Data(http.StatusOK, "application/json", []byte("{}"))
 	})
-	r.GET("/topology.json", func(c *gin.Context) {
+	topo.GET("/topology.json", func(c *gin.Context) {
 		// Prefer real topology data if present; fallback to debug; then empty graph
 		candidates := []string{
 			filepath.Join(webRoot, "topology.json"),
@@ -169,7 +173,7 @@ func main() {
 		}
 		c.Data(http.StatusOK, "application/json", []byte("{\"nodes\":[],\"edges\":[]}"))
 	})
-	r.GET("/topology-debug.json", func(c *gin.Context) {
+	topo.GET("/topology-debug.json", func(c *gin.Context) {
 		// try file at project root; fallback to empty nodes/edges
 		p := filepath.Join(webRoot, "topology-debug.json")
 		if _, err := os.Stat(p); err == nil {

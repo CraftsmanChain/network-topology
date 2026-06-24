@@ -39,7 +39,7 @@
         if (!username || !password) { msg.textContent = '请输入用户名和密码'; return; }
         btn.disabled = true;
         try {
-          const resp = await fetch('/api/login', {
+          const resp = await fetch('/topology/api/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
@@ -49,7 +49,7 @@
           localStorage.setItem('token', data.token);
           // 记录登录时间，用于免登录窗口
           try { localStorage.setItem('token_time', String(Date.now())); } catch (e) { /* ignore */ }
-          location.href = '/config.html';
+          location.href = '/topology/config.html';
         } catch (e) {
           msg.textContent = e.message || String(e);
         } finally {
