@@ -543,7 +543,8 @@
       showMeth: false,
       displayNodes: [],
       displayLinks: [],
-      hiddenMethLinks: 0
+      hiddenMethLinks: 0,
+      lastLoadedAt: null
     };
 
     const zoneDefinitions = [
@@ -1172,7 +1173,10 @@
       $('metric-down').textContent = rawNodes.filter(n => Number(n.status) !== 0 || deviceHasDownPort(n)).length;
       $('metric-fault-links').textContent = state.displayLinks.filter(link => link.down).length;
       $('metric-meth').textContent = state.showMeth ? 0 : state.hiddenMethLinks || 0;
-      $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${state.links.length} 条原始链路`;
+      const loadedAt = state.lastLoadedAt
+        ? ` / 更新 ${state.lastLoadedAt.toLocaleTimeString('zh-CN', { hour12: false })}`
+        : '';
+      $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${state.links.length} 条原始链路${loadedAt}`;
     }
 
     function connectedSelection(id) {
@@ -1551,6 +1555,7 @@
       state.groupRules = await fetchJSON('/topology/api/config/group_rules', await fetchJSON('config/group_rules.json', { groups: [] }));
       state.topology = await fetchJSON('topology.json', { nodes: [] });
       state.links = await fetchJSON('links.json', []);
+      state.lastLoadedAt = new Date();
       state.showMeth = methToggle.checked || ((state.config.display || {}).showMethInterfaces === true);
       methToggle.checked = state.showMeth;
       $('page-title').textContent = (state.config.title || '架构拓扑视图') + ' - 架构视图';
@@ -1563,6 +1568,13 @@
       render();
     });
     $('reload').addEventListener('click', loadAll);
+    window.setInterval(() => {
+      if (document.hidden) return;
+      loadAll();
+    }, 60000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) loadAll();
+    });
     document.querySelectorAll('.metric').forEach(btn => {
       btn.addEventListener('click', () => showMetric(btn.dataset.metric));
     });

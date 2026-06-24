@@ -1,9 +1,9 @@
 [Unit]
-Description=Run snmp.service 5 minutes after last completion
+Description=Run snmp.service every 5 minutes
 
 [Timer]
 OnBootSec=5min
-OnUnitInactiveSec=10sec
+OnUnitInactiveSec=5min
 Persistent=true
 
 [Install]
