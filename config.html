@@ -35,6 +35,7 @@
     <header>
       <div class="title">配置中心</div>
       <div class="actions">
+        <a href="/topology/modern.html" id="go-modern">架构视图</a>
         <a href="#" id="go-front-edit">前台编辑</a>
         <a href="/topology/" id="logout-link">退出登录</a>
       </div>
@@ -71,6 +72,7 @@
           </div>
           <div class="grid">
             <div class="field"><label>拓扑标题</label><input id="topo-title" placeholder="例如：智元集群拓扑监控" /></div>
+            <div class="field"><label>显示 MEth 管理接口</label><input type="checkbox" id="display-show-meth" /></div>
             <div class="field"><label>交换机图标</label><input id="icon-device" placeholder="icons/sw.png" /></div>
             <div class="field"><label>交换机故障图标</label><input id="icon-device-bad" placeholder="icons/sw-bad.png" /></div>
             <div class="field"><label>交换机组图标</label><input id="icon-group" placeholder="icons/sigle-sw.png" /></div>
@@ -452,6 +454,11 @@
           const prof = (cfg && cfg.profiles && cfg.profiles[activeProfile]) ? cfg.profiles[activeProfile] : cfg;
           const titleEl = document.getElementById('topo-title');
           if (typeof prof.title !== 'undefined') titleEl.value = String(prof.title);
+          const display = activeProfile === 'main'
+            ? ((cfg && cfg.display) || {})
+            : { ...((cfg && cfg.display) || {}), ...((prof && prof.display) || {}) };
+          const methEl = document.getElementById('display-show-meth');
+          if (methEl) methEl.checked = display.showMethInterfaces === true;
           const d = (prof && prof.default_icons) || {};
           const setIf = (elId, v, fallback) => { const el = document.getElementById(elId); el.value = typeof v !== 'undefined' ? v : (el.value || fallback); };
           setIf('icon-device', d.device, 'icons/sw.png');
@@ -478,6 +485,9 @@
         cfg.profiles = cfg.profiles || {};
         const target = activeProfile === 'main' ? cfg : (cfg.profiles[activeProfile] = cfg.profiles[activeProfile] || {});
         target.title = document.getElementById('topo-title').value.trim();
+        target.display = target.display || {};
+        const methEl = document.getElementById('display-show-meth');
+        target.display.showMethInterfaces = methEl ? !!methEl.checked : false;
         target.default_icons = target.default_icons || {};
         target.default_icons.device = document.getElementById('icon-device').value.trim();
         target.default_icons.device_bad = document.getElementById('icon-device-bad').value.trim();
@@ -505,7 +515,7 @@
         const cfg = await fetchJSON('/topology/api/config/topology_config');
         cfg.profiles = cfg.profiles || {};
         if (cfg.profiles[name]) { msg.textContent = '该拓扑已存在'; return; }
-        cfg.profiles[name] = { title: name, default_icons: {}, types: {}, aliases: {}, visibility: { devices: {}, groups: {} } };
+        cfg.profiles[name] = { title: name, default_icons: {}, types: {}, aliases: {}, visibility: { devices: {}, groups: {} }, display: { showMethInterfaces: false } };
         try { await putConfig('topology_config', cfg); document.getElementById('config-profile').value = name; await refreshGlobalConfig(); msg.textContent = '已新增拓扑'; msg.className = 'msg ok'; }
         catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
         try {

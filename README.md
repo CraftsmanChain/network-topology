@@ -29,16 +29,18 @@
   - `PORT` 默认 `8181`
   - `WEB_ROOT` 静态资源根目录，默认 `..`（项目根）
   - `CONFIG_DIR` 配置目录，默认 `../config`
+  - `DATA_ROOT` 动态数据目录，默认等于 `WEB_ROOT`，可用于测试项目复用现有数据文件
   - `JWT_SECRET` JWT 签名密钥，默认开发值，生产必须覆盖
 
 ## 登录与权限
 - 在 `config/.users.local` 写入两行：
   - 第1行用户名
   - 第2行密码
-- `POST /api/login` 获取 `token` 后在请求头加入 `Authorization: Bearer <token>` 即可访问受保护接口。
+- `POST /topology/api/login` 获取 `token` 后在请求头加入 `Authorization: Bearer <token>` 即可访问受保护接口。
 
 ## 前端页面
 - `topology.html` 可视化拓扑，支持图例、故障高亮、管理员模式与前台编辑工具条。
+- `topology-modern.html` 架构拓扑验证视图，按区域/层级聚合展示链路。
 - `config.html` 简化的配置查看/编辑入口（通过后端 API）。
 - `login.html` 管理员登录界面。
 
@@ -63,19 +65,19 @@
 - 可参考 `examples/snmp.service` 与 `examples/snmp.timer` 将采集任务以 systemd 定时运行。
 
 ## 后端 API
-- `GET /api/health` 服务健康检查
-- `POST /api/login` 登录，读取 `config/.users.local` 生成 JWT
-- `GET /api/config/:name` 读取配置
+- `GET /topology/api/health` 服务健康检查
+- `POST /topology/api/login` 登录，读取 `config/.users.local` 生成 JWT
+- `GET /topology/api/config/:name` 读取配置
   - `name ∈ {group_rules, topology_config, positions, link_overrides}`
-- `PUT /api/config/:name` 写入配置（需 `Bearer`），支持内容未变时的无操作返回
-- `GET /api/history/:name` 查看历史版本列表
-- `POST /api/history/:name/backup` 从当前配置创建快照
-- `POST /api/history/:name/rollback` 按时间戳回滚配置
+- `PUT /topology/api/config/:name` 写入配置（需 `Bearer`），支持内容未变时的无操作返回
+- `GET /topology/api/history/:name` 查看历史版本列表
+- `POST /topology/api/history/:name/backup` 从当前配置创建快照
+- `POST /topology/api/history/:name/rollback` 按时间戳回滚配置
 - 静态与数据：
-  - `/web` 映射到 `WEB_ROOT`
-  - `/icons` 映射到 `WEB_ROOT/icons`
-  - `/topology` 映射到 `WEB_ROOT`（便于相对路径加载）
-  - `/devices.json`、`/links.json`、`/topology.json`、`/prometheus.json` 若不存在则返回空结构
+  - `/topology/web` 映射到 `WEB_ROOT`
+  - `/topology/icons` 映射到 `WEB_ROOT/icons`
+  - `/topology/modern.html` 进入架构拓扑验证视图
+  - `/topology/devices.json`、`/topology/links.json`、`/topology/topology.json`、`/topology/prometheus.json` 优先从 `DATA_ROOT` 读取，若不存在则返回空结构
 
 ## 部署建议
 - 设置环境变量强化安全与路径：

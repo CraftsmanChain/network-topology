@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>架构拓扑视图</title>
+  <script src="https://unpkg.com/animejs@3.2.2/lib/anime.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #111827;
+      --panel-2: #172033;
+      --line: #263245;
+      --text: #e5edf7;
+      --muted: #91a0b6;
+      --accent: #22d3ee;
+      --ok: #22c55e;
+      --bad: #ef4444;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-rows: 56px minmax(0, 1fr);
+      height: 100vh;
+    }
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: #0f172a;
+    }
+    .title {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      min-width: 0;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 700;
+      color: #67e8f9;
+      letter-spacing: 0;
+    }
+    .title span {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .actions a,
+    .actions button {
+      color: var(--text);
+      background: #1f2937;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 7px 10px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .actions a:hover,
+    .actions button:hover {
+      border-color: var(--accent);
+    }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      user-select: none;
+    }
+    .toggle input { margin: 0; }
+    .stage {
+      position: relative;
+      overflow: auto;
+      background: #08111f;
+    }
+    .canvas-wrap {
+      position: relative;
+      min-width: 1180px;
+      min-height: 760px;
+      width: 100%;
+      height: 100%;
+    }
+    svg#topology-svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 760px;
+    }
+    .side {
+      border-left: 1px solid var(--line);
+      background: #0f172a;
+      overflow: auto;
+      padding: 14px;
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+    }
+    .metric b {
+      display: block;
+      font-size: 18px;
+      color: #f8fafc;
+    }
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .section {
+      padding: 12px 0;
+      border-top: 1px solid var(--line);
+    }
+    .section h2 {
+      margin: 0 0 10px;
+      color: #67e8f9;
+      font-size: 15px;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 7px 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .legend-line {
+      width: 72px;
+      height: 3px;
+      border-radius: 99px;
+      background: var(--line);
+    }
+    .detail {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+    .detail table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    .detail td,
+    .detail th {
+      border: 1px solid var(--line);
+      padding: 5px;
+      text-align: left;
+      font-size: 12px;
+    }
+    .zone-label {
+      fill: #f8fafc;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .zone-sub {
+      fill: #94a3b8;
+      font-size: 11px;
+    }
+    .zone-bg {
+      fill: #0f1a2d;
+      stroke: #263245;
+      stroke-width: 1;
+      rx: 8;
+    }
+    .node-card {
+      cursor: pointer;
+      filter: drop-shadow(0 8px 14px rgba(0,0,0,.25));
+    }
+    .node-rect {
+      fill: #172033;
+      stroke: #38506d;
+      stroke-width: 1.2;
+      rx: 7;
+    }
+    .node-card.down .node-rect {
+      fill: #2a1218;
+      stroke: #ef4444;
+    }
+    .node-card.group .node-rect {
+      fill: #102a3a;
+      stroke: #0ea5e9;
+    }
+    .node-title {
+      fill: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      pointer-events: none;
+    }
+    .node-meta {
+      fill: #94a3b8;
+      font-size: 10px;
+      pointer-events: none;
+    }
+    .node-dot {
+      stroke: rgba(255,255,255,.35);
+      stroke-width: 1;
+    }
+    .link {
+      fill: none;
+      stroke-linecap: round;
+      opacity: .72;
+      cursor: pointer;
+    }
+    .link:hover {
+      opacity: 1;
+      filter: drop-shadow(0 0 6px rgba(34,211,238,.6));
+    }
+    .link.down {
+      opacity: .92;
+      stroke-dasharray: 8 6;
+    }
+    .link-label {
+      fill: #cbd5e1;
+      font-size: 10px;
+      paint-order: stroke;
+      stroke: #08111f;
+      stroke-width: 4;
+      pointer-events: none;
+    }
+    .loading {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      background: rgba(8,17,31,.7);
+      z-index: 3;
+    }
+    @media (max-width: 1024px) {
+      .shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: 56px minmax(0, 1fr) 260px;
+      }
+      .side {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+      .canvas-wrap {
+        min-width: 980px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="title">
+        <h1 id="page-title">架构拓扑视图</h1>
+        <span id="subtitle">分区聚合视图</span>
+      </div>
+      <div class="actions">
+        <label class="toggle"><input type="checkbox" id="toggle-meth" />显示 MEth</label>
+        <button id="reload">刷新</button>
+        <a href="/topology/">经典视图</a>
+        <a href="/topology/config.html">管理后台</a>
+      </div>
+    </header>
+    <main class="stage">
+      <div class="canvas-wrap">
+        <svg id="topology-svg" role="img" aria-label="架构拓扑图"></svg>
+        <div id="loading" class="loading">正在加载拓扑数据...</div>
+      </div>
+    </main>
+    <aside class="side">
+      <div class="metric-grid">
+        <div class="metric"><b id="metric-devices">-</b><span>设备</span></div>
+        <div class="metric"><b id="metric-links">-</b><span>聚合链路</span></div>
+        <div class="metric"><b id="metric-down">-</b><span>故障设备</span></div>
+        <div class="metric"><b id="metric-meth">-</b><span>隐藏 MEth</span></div>
+      </div>
+      <div class="section">
+        <h2>链路图例</h2>
+        <div class="legend-row"><span>400G</span><i class="legend-line" style="background:#ef4444"></i></div>
+        <div class="legend-row"><span>200G</span><i class="legend-line" style="background:#22c55e"></i></div>
+        <div class="legend-row"><span>100G</span><i class="legend-line" style="background:#fb923c"></i></div>
+        <div class="legend-row"><span>25G</span><i class="legend-line" style="background:#8b5cf6"></i></div>
+        <div class="legend-row"><span>10G</span><i class="legend-line" style="background:#64748b"></i></div>
+        <div class="legend-row"><span>DOWN</span><i class="legend-line" style="background:#ef4444;border-top:0"></i></div>
+      </div>
+      <div class="section">
+        <h2>选中对象</h2>
+        <div id="detail" class="detail">点击节点或链路查看详情。</div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const svg = document.getElementById('topology-svg');
+    const loading = document.getElementById('loading');
+    const methToggle = document.getElementById('toggle-meth');
+    const state = {
+      config: {},
+      groupRules: { groups: [] },
+      topology: { nodes: [] },
+      links: [],
+      showMeth: false,
+      displayNodes: [],
+      displayLinks: []
+    };
+
+    const zones = [
+      { id: 'exit', title: '出口区', subtitle: '公网、专线、防火墙', x: 38, y: 34, w: 1088, h: 128 },
+      { id: 'core', title: '核心与汇聚区', subtitle: 'Core / AGG / TOR', x: 38, y: 184, w: 1088, h: 158 },
+      { id: 'mgmt', title: '带内管理区', subtitle: 'MGT / 管理汇聚与接入', x: 38, y: 364, w: 650, h: 162 },
+      { id: 'oob', title: '带外管理区', subtitle: 'OOB / NETOOB', x: 710, y: 364, w: 416, h: 162 },
+      { id: 'compute', title: '智算区', subtitle: 'Calc / Leaf / Spine / ROCE', x: 38, y: 548, w: 650, h: 176 },
+      { id: 'storage', title: '存储区', subtitle: 'Storage / Stor', x: 710, y: 548, w: 416, h: 176 }
+    ];
+
+    function $(id) { return document.getElementById(id); }
+
+    async function fetchJSON(path, fallback) {
+      try {
+        const sep = path.includes('?') ? '&' : '?';
+        const res = await fetch(path + sep + 't=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) return fallback;
+        return await res.json();
+      } catch (e) {
+        return fallback;
+      }
+    }
+
+    function mergeProfile(base) {
+      const params = new URLSearchParams(location.search);
+      const profile = params.get('profile') || base.home_topology || 'main';
+      const prof = base.profiles && base.profiles[profile] ? base.profiles[profile] : null;
+      if (!prof) return base;
+      const out = JSON.parse(JSON.stringify(base));
+      ['title'].forEach(k => { if (typeof prof[k] !== 'undefined') out[k] = prof[k]; });
+      ['default_icons', 'types', 'aliases', 'display', 'visibility'].forEach(k => {
+        if (prof[k] && typeof prof[k] === 'object') out[k] = { ...(out[k] || {}), ...(prof[k] || {}) };
+      });
+      return out;
+    }
+
+    function normalizeName(value) {
+      return String(value || '').trim();
+    }
+
+    function isMethPortName(value) {
+      return /^meth/i.test(normalizeName(value));
+    }
+
+    function linkUsesMeth(link) {
+      return isMethPortName(link.sourcePort) || isMethPortName(link.targetPort);
+    }
+
+    function portKey(name) {
+      return normalizeName(name).toLowerCase().replace(/\s+/g, '');
+    }
+
+    function portIsUp(port) {
+      return !!port && (port.status === 1 || (Number(port.transmit) > 0 || Number(port.receive) > 0));
+    }
+
+    function aliasFor(id) {
+      const aliases = state.config.aliases || {};
+      return aliases[id] || aliases['group:' + id] || id;
+    }
+
+    function compileRules() {
+      return (state.groupRules.groups || []).map(group => {
+        const includeRegex = (group.include_regex || []).map(rx => {
+          try { return new RegExp(rx); } catch (e) { return null; }
+        }).filter(Boolean);
+        const excludeRegex = (group.exclude_regex || []).map(rx => {
+          try { return new RegExp(rx); } catch (e) { return null; }
+        }).filter(Boolean);
+        return { ...group, includeRegex, excludeRegex };
+      });
+    }
+
+    function matchesGroup(group, node) {
+      const id = node.id;
+      const name = node.label || node.name || id;
+      const inIds = (group.include_ids || []).includes(id);
+      const inRegex = group.includeRegex.some(rx => rx.test(id) || rx.test(name));
+      const exIds = (group.exclude_ids || []).includes(id);
+      const exRegex = group.excludeRegex.some(rx => rx.test(id) || rx.test(name));
+      return (inIds || inRegex) && !(exIds || exRegex);
+    }
+
+    function classifyZone(id, label) {
+      const s = (id + ' ' + label).toLowerCase();
+      if (/fw|firewall|防火墙|public|公网|专线|ali|huoshan|ctyun-oob/.test(s)) return 'exit';
+      if (/netoob|oob|带外/.test(s)) return 'oob';
+      if (/mgt|mgmt|manage|管理/.test(s)) return 'mgmt';
+      if (/stor|storage|存储/.test(s)) return 'storage';
+      if (/calc|roce|leaf|spine|pod|智算/.test(s)) return 'compute';
+      if (/core|agg|tor|汇聚|核心/.test(s)) return 'core';
+      return 'core';
+    }
+
+    function roleRank(id, label) {
+      const s = (id + ' ' + label).toLowerCase();
+      if (/fw|firewall|防火墙/.test(s)) return 0;
+      if (/core|核心/.test(s)) return 1;
+      if (/agg|汇聚/.test(s)) return 2;
+      if (/tor/.test(s)) return 3;
+      if (/spine/.test(s)) return 4;
+      if (/leaf/.test(s)) return 5;
+      return 6;
+    }
+
+    function deviceHasDownPort(node) {
+      const ports = Array.isArray(node.ports) ? node.ports : [];
+      return ports.some(p => {
+        if (!state.showMeth && (isMethPortName(p.ifName) || isMethPortName(p.ifDescr) || isMethPortName(p.ifIndex))) return false;
+        return !portIsUp(p);
+      });
+    }
+
+    function buildPortIndex(nodes) {
+      const index = new Map();
+      nodes.forEach(node => {
+        const map = new Map();
+        (node.ports || []).forEach(port => {
+          [port.ifName, port.ifDescr, port.ifIndex].forEach(name => {
+            const key = portKey(name);
+            if (key) map.set(key, port);
+          });
+        });
+        index.set(node.id, map);
+      });
+      return index;
+    }
+
+    function buildDisplayModel() {
+      const cfg = state.config || {};
+      const visibility = cfg.visibility || {};
+      const deviceVisibility = visibility.devices || {};
+      const groupVisibility = visibility.groups || {};
+      const rules = compileRules();
+      const rawNodes = (state.topology.nodes || []).filter(n => n && n.id && deviceVisibility[n.id] !== false);
+      const nodeById = new Map(rawNodes.map(n => [n.id, n]));
+      const portIndex = buildPortIndex(rawNodes);
+      const groups = new Map();
+      const memberToDisplay = new Map();
+      const standalone = [];
+
+      rawNodes.forEach(node => {
+        const rule = rules.find(g => matchesGroup(g, node));
+        if (rule && groupVisibility[rule.id] !== false) {
+          if (!groups.has(rule.id)) groups.set(rule.id, { id: 'group:' + rule.id, groupId: rule.id, label: aliasFor(rule.id), members: [], raw: [] });
+          const group = groups.get(rule.id);
+          group.members.push(node.id);
+          group.raw.push(node);
+          memberToDisplay.set(node.id, group.id);
+        } else {
+          standalone.push(node);
+          memberToDisplay.set(node.id, node.id);
+        }
+      });
+
+      const displayNodes = [];
+      groups.forEach(group => {
+        const down = group.raw.some(node => Number(node.status) !== 0 || deviceHasDownPort(node));
+        const label = aliasFor(group.id) || aliasFor(group.groupId);
+        displayNodes.push({
+          id: group.id,
+          label,
+          zone: classifyZone(group.groupId, label),
+          role: roleRank(group.groupId, label),
+          count: group.members.length,
+          down,
+          kind: 'group',
+          members: group.members
+        });
+      });
+      standalone.forEach(node => {
+        const label = aliasFor(node.id) || node.label || node.id;
+        displayNodes.push({
+          id: node.id,
+          label,
+          zone: classifyZone(node.id, label),
+          role: roleRank(node.id, label),
+          count: 1,
+          down: Number(node.status) !== 0 || deviceHasDownPort(node),
+          kind: 'device',
+          node
+        });
+      });
+
+      const linkMap = new Map();
+      let hiddenMeth = 0;
+      (state.links || []).forEach(link => {
+        if (!link || !link.source || !link.target) return;
+        if (!state.showMeth && linkUsesMeth(link)) {
+          hiddenMeth++;
+          return;
+        }
+        const from = memberToDisplay.get(link.source) || link.source;
+        const to = memberToDisplay.get(link.target) || link.target;
+        if (!from || !to || from === to) return;
+        const key = from < to ? from + '---' + to : to + '---' + from;
+        if (!linkMap.has(key)) linkMap.set(key, { id: key, from: from < to ? from : to, to: from < to ? to : from, count: 0, down: false, speed: 0, raw: [] });
+        const rec = linkMap.get(key);
+        rec.count++;
+        rec.raw.push(link);
+        const srcPort = portIndex.get(link.source)?.get(portKey(link.sourcePort));
+        const tgtPort = portIndex.get(link.target)?.get(portKey(link.targetPort));
+        if (!portIsUp(srcPort) || !portIsUp(tgtPort)) rec.down = true;
+        rec.speed = Math.max(rec.speed, Number(srcPort && srcPort.speed_mbps) || 0, Number(tgtPort && tgtPort.speed_mbps) || 0);
+      });
+
+      const nodeIds = new Set(displayNodes.map(n => n.id));
+      const displayLinks = Array.from(linkMap.values()).filter(link => nodeIds.has(link.from) && nodeIds.has(link.to));
+      state.displayNodes = displayNodes;
+      state.displayLinks = displayLinks;
+      state.hiddenMethLinks = hiddenMeth;
+      state.nodeById = nodeById;
+    }
+
+    function layoutNodes() {
+      const byZone = new Map(zones.map(zone => [zone.id, []]));
+      state.displayNodes.forEach(node => {
+        if (!byZone.has(node.zone)) byZone.set('core', []);
+        byZone.get(node.zone).push(node);
+      });
+      zones.forEach(zone => {
+        const list = byZone.get(zone.id) || [];
+        list.sort((a, b) => a.role - b.role || String(a.label).localeCompare(String(b.label)));
+        const cols = Math.max(2, Math.min(6, Math.ceil(Math.sqrt(list.length * (zone.w / Math.max(zone.h, 1))))));
+        const cardW = Math.min(132, Math.max(104, (zone.w - 54) / cols - 10));
+        const cardH = 50;
+        const top = zone.y + 48;
+        const left = zone.x + 20;
+        const gapX = cols > 1 ? (zone.w - 40 - cardW) / (cols - 1) : 0;
+        const rows = Math.max(1, Math.ceil(list.length / cols));
+        const gapY = rows > 1 ? Math.min(66, (zone.h - 72 - cardH) / (rows - 1)) : 0;
+        list.forEach((node, idx) => {
+          const col = idx % cols;
+          const row = Math.floor(idx / cols);
+          node.w = cardW;
+          node.h = cardH;
+          node.x = left + col * gapX;
+          node.y = top + row * Math.max(54, gapY);
+          node.cx = node.x + cardW / 2;
+          node.cy = node.y + cardH / 2;
+        });
+      });
+    }
+
+    function colorBySpeed(speed, down) {
+      if (down) return '#ef4444';
+      if (speed >= 400) return '#ef4444';
+      if (speed >= 200) return '#22c55e';
+      if (speed >= 100) return '#fb923c';
+      if (speed >= 25) return '#8b5cf6';
+      if (speed >= 10) return '#64748b';
+      return '#94a3b8';
+    }
+
+    function svgEl(tag, attrs) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      Object.entries(attrs || {}).forEach(([key, value]) => el.setAttribute(key, value));
+      return el;
+    }
+
+    function truncate(text, max) {
+      const s = String(text || '');
+      return s.length > max ? s.slice(0, max - 1) + '...' : s;
+    }
+
+    function linePath(a, b) {
+      const dx = Math.abs(a.cx - b.cx);
+      const midY = (a.cy + b.cy) / 2;
+      if (dx < 70) return `M${a.cx},${a.cy} C${a.cx},${midY} ${b.cx},${midY} ${b.cx},${b.cy}`;
+      const midX = (a.cx + b.cx) / 2;
+      return `M${a.cx},${a.cy} C${midX},${a.cy} ${midX},${b.cy} ${b.cx},${b.cy}`;
+    }
+
+    function render() {
+      buildDisplayModel();
+      layoutNodes();
+      svg.innerHTML = '';
+      const width = Math.max(1164, svg.clientWidth || 1164);
+      const height = Math.max(760, svg.clientHeight || 760);
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+      const zoneLayer = svgEl('g');
+      const linkLayer = svgEl('g');
+      const nodeLayer = svgEl('g');
+      svg.appendChild(zoneLayer);
+      svg.appendChild(linkLayer);
+      svg.appendChild(nodeLayer);
+
+      zones.forEach(zone => {
+        zoneLayer.appendChild(svgEl('rect', { class: 'zone-bg', x: zone.x, y: zone.y, width: zone.w, height: zone.h, rx: 8 }));
+        const title = svgEl('text', { class: 'zone-label', x: zone.x + 18, y: zone.y + 26 });
+        title.textContent = zone.title;
+        zoneLayer.appendChild(title);
+        const sub = svgEl('text', { class: 'zone-sub', x: zone.x + 18, y: zone.y + 44 });
+        sub.textContent = zone.subtitle;
+        zoneLayer.appendChild(sub);
+      });
+
+      const nodeByDisplayId = new Map(state.displayNodes.map(node => [node.id, node]));
+      state.displayLinks.forEach(link => {
+        const a = nodeByDisplayId.get(link.from);
+        const b = nodeByDisplayId.get(link.to);
+        if (!a || !b) return;
+        const path = svgEl('path', {
+          class: 'link' + (link.down ? ' down' : ''),
+          d: linePath(a, b),
+          stroke: colorBySpeed(link.speed, link.down),
+          'stroke-width': Math.min(8, 1.4 + Math.log2(link.count + 1))
+        });
+        path.addEventListener('click', ev => {
+          ev.stopPropagation();
+          showLinkDetail(link, a, b);
+        });
+        linkLayer.appendChild(path);
+        if (link.count > 1 || link.speed > 0) {
+          const label = svgEl('text', { class: 'link-label', x: (a.cx + b.cx) / 2, y: (a.cy + b.cy) / 2 - 5, 'text-anchor': 'middle' });
+          label.textContent = `${link.count}x${link.speed ? ' / ' + link.speed + 'G' : ''}`;
+          linkLayer.appendChild(label);
+        }
+      });
+
+      state.displayNodes.forEach(node => {
+        const group = svgEl('g', { class: `node-card ${node.kind}${node.down ? ' down' : ''}`, transform: `translate(${node.x},${node.y})` });
+        group.addEventListener('click', ev => {
+          ev.stopPropagation();
+          showNodeDetail(node);
+        });
+        group.appendChild(svgEl('rect', { class: 'node-rect', width: node.w, height: node.h, rx: 7 }));
+        group.appendChild(svgEl('circle', { class: 'node-dot', cx: 13, cy: 15, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
+        const title = svgEl('text', { class: 'node-title', x: 25, y: 18 });
+        title.textContent = truncate(node.label, 16);
+        group.appendChild(title);
+        const meta = svgEl('text', { class: 'node-meta', x: 12, y: 38 });
+        meta.textContent = node.kind === 'group' ? `${node.count} 台设备` : (node.down ? 'DOWN' : 'UP');
+        group.appendChild(meta);
+        nodeLayer.appendChild(group);
+      });
+
+      updateMetrics();
+      if (window.anime) {
+        anime({ targets: '.node-card', opacity: [0, 1], translateY: [8, 0], delay: anime.stagger(12), duration: 420, easing: 'easeOutQuad' });
+        anime({ targets: '.link', strokeDashoffset: [18, 0], duration: 600, easing: 'easeOutQuad' });
+      }
+    }
+
+    function updateMetrics() {
+      const rawNodes = state.topology.nodes || [];
+      $('metric-devices').textContent = rawNodes.length;
+      $('metric-links').textContent = state.displayLinks.length;
+      $('metric-down').textContent = rawNodes.filter(n => Number(n.status) !== 0 || deviceHasDownPort(n)).length;
+      $('metric-meth').textContent = state.showMeth ? 0 : state.hiddenMethLinks || 0;
+      $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${state.links.length} 条原始链路`;
+    }
+
+    function showNodeDetail(node) {
+      const detail = $('detail');
+      if (node.kind === 'group') {
+        const rows = node.members.slice(0, 12).map(id => `<tr><td>${id}</td></tr>`).join('');
+        detail.innerHTML = `<b>${node.label}</b><br/>类型：设备组<br/>成员：${node.count} 台<br/>状态：${node.down ? '<span style="color:var(--bad)">DOWN</span>' : '<span style="color:var(--ok)">UP</span>'}<table><tbody>${rows}</tbody></table>`;
+        return;
+      }
+      const raw = node.node || {};
+      const ports = (raw.ports || []).filter(p => state.showMeth || !(isMethPortName(p.ifName) || isMethPortName(p.ifDescr) || isMethPortName(p.ifIndex)));
+      const downPorts = ports.filter(p => !portIsUp(p)).length;
+      detail.innerHTML = `<b>${node.label}</b><br/>ID：${node.id}<br/>IP：${raw.ip || '-'}<br/>状态：${node.down ? '<span style="color:var(--bad)">DOWN</span>' : '<span style="color:var(--ok)">UP</span>'}<br/>端口：${ports.length}，异常：${downPorts}`;
+    }
+
+    function showLinkDetail(link, fromNode, toNode) {
+      const sampleRows = link.raw.slice(0, 10).map(item => {
+        return `<tr><td>${item.source}</td><td>${item.sourcePort || '-'}</td><td>${item.target}</td><td>${item.targetPort || '-'}</td></tr>`;
+      }).join('');
+      $('detail').innerHTML = `<b>${fromNode.label} - ${toNode.label}</b><br/>聚合链路：${link.count}<br/>最大速率：${link.speed || '-'}G<br/>状态：${link.down ? '<span style="color:var(--bad)">DOWN</span>' : '<span style="color:var(--ok)">UP</span>'}<table><thead><tr><th>本端</th><th>接口</th><th>对端</th><th>接口</th></tr></thead><tbody>${sampleRows}</tbody></table>`;
+    }
+
+    async function loadAll() {
+      loading.style.display = 'grid';
+      const cfgRaw = await fetchJSON('/topology/api/config/topology_config', await fetchJSON('config/topology_config.json', {}));
+      state.config = mergeProfile(cfgRaw || {});
+      state.groupRules = await fetchJSON('/topology/api/config/group_rules', await fetchJSON('config/group_rules.json', { groups: [] }));
+      state.topology = await fetchJSON('topology.json', { nodes: [] });
+      state.links = await fetchJSON('links.json', []);
+      state.showMeth = methToggle.checked || ((state.config.display || {}).showMethInterfaces === true);
+      methToggle.checked = state.showMeth;
+      $('page-title').textContent = (state.config.title || '架构拓扑视图') + ' - 架构视图';
+      render();
+      loading.style.display = 'none';
+    }
+
+    methToggle.addEventListener('change', () => {
+      state.showMeth = methToggle.checked;
+      render();
+    });
+    $('reload').addEventListener('click', loadAll);
+    svg.addEventListener('click', () => { $('detail').textContent = '点击节点或链路查看详情。'; });
+    window.addEventListener('resize', () => { window.clearTimeout(window.__modernResize); window.__modernResize = window.setTimeout(render, 120); });
+    loadAll();
+  </script>
+</body>
+</html>
