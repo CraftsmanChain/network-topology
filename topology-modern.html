@@ -298,7 +298,7 @@
       </div>
       <div class="section">
         <h2>链路图例</h2>
-        <div class="legend-row"><span>400G</span><i class="legend-line" style="background:#ef4444"></i></div>
+        <div class="legend-row"><span>400G</span><i class="legend-line" style="background:#06b6d4"></i></div>
         <div class="legend-row"><span>200G</span><i class="legend-line" style="background:#22c55e"></i></div>
         <div class="legend-row"><span>100G</span><i class="legend-line" style="background:#fb923c"></i></div>
         <div class="legend-row"><span>25G</span><i class="legend-line" style="background:#8b5cf6"></i></div>
@@ -326,14 +326,15 @@
       displayLinks: []
     };
 
-    const zones = [
-      { id: 'exit', title: '出口区', subtitle: '公网、专线、防火墙', x: 38, y: 34, w: 1088, h: 128 },
-      { id: 'core', title: '核心与汇聚区', subtitle: 'Core / AGG / TOR', x: 38, y: 184, w: 1088, h: 158 },
-      { id: 'mgmt', title: '带内管理区', subtitle: 'MGT / 管理汇聚与接入', x: 38, y: 364, w: 650, h: 162 },
-      { id: 'oob', title: '带外管理区', subtitle: 'OOB / NETOOB', x: 710, y: 364, w: 416, h: 162 },
-      { id: 'compute', title: '智算区', subtitle: 'Calc / Leaf / Spine / ROCE', x: 38, y: 548, w: 650, h: 176 },
-      { id: 'storage', title: '存储区', subtitle: 'Storage / Stor', x: 710, y: 548, w: 416, h: 176 }
+    const zoneDefinitions = [
+      { id: 'exit', title: '出口/专线区', subtitle: '公网、专线、防火墙', column: 'full', minH: 118 },
+      { id: 'core', title: '核心与汇聚区', subtitle: 'Core / AGG / TOR', column: 'full', minH: 142 },
+      { id: 'mgmt', title: '带内管理区', subtitle: 'MGT / 管理汇聚与接入', column: 'left', minH: 150 },
+      { id: 'oob', title: '带外管理区', subtitle: 'OOB / NETOOB', column: 'right', minH: 150 },
+      { id: 'compute', title: '智算区', subtitle: 'Calc / Leaf / Spine / ROCE', column: 'left', minH: 166 },
+      { id: 'storage', title: '存储区', subtitle: 'Storage / Stor', column: 'right', minH: 166 }
     ];
+    let activeZones = [];
 
     function $(id) { return document.getElementById(id); }
 
@@ -410,12 +411,12 @@
 
     function classifyZone(id, label) {
       const s = (id + ' ' + label).toLowerCase();
-      if (/fw|firewall|防火墙|public|公网|专线|ali|huoshan|ctyun-oob/.test(s)) return 'exit';
       if (/netoob|oob|带外/.test(s)) return 'oob';
       if (/mgt|mgmt|manage|管理/.test(s)) return 'mgmt';
       if (/stor|storage|存储/.test(s)) return 'storage';
       if (/calc|roce|leaf|spine|pod|智算/.test(s)) return 'compute';
       if (/core|agg|tor|汇聚|核心/.test(s)) return 'core';
+      if (/fw|firewall|防火墙|public|公网|专线|ali|huoshan/.test(s)) return 'exit';
       return 'core';
     }
 
@@ -453,6 +454,22 @@
       return index;
     }
 
+    function zoneTitle(zoneId) {
+      return (zoneDefinitions.find(zone => zone.id === zoneId) || {}).title || zoneId;
+    }
+
+    function roleLabel(role) {
+      return ['防火墙', 'Core', 'AGG', 'TOR', 'Spine', 'Leaf', '设备'][role] || '设备';
+    }
+
+    function autoGroupKey(node) {
+      const label = aliasFor(node.id) || node.label || node.id;
+      const zone = classifyZone(node.id, label);
+      const role = roleRank(node.id, label);
+      if (zone === 'exit') return '';
+      return `${zone}|${role}`;
+    }
+
     function buildDisplayModel() {
       const cfg = state.config || {};
       const visibility = cfg.visibility || {};
@@ -465,6 +482,7 @@
       const groups = new Map();
       const memberToDisplay = new Map();
       const standalone = [];
+      const autoBuckets = new Map();
 
       rawNodes.forEach(node => {
         const rule = rules.find(g => matchesGroup(g, node));
@@ -475,8 +493,13 @@
           group.raw.push(node);
           memberToDisplay.set(node.id, group.id);
         } else {
-          standalone.push(node);
-          memberToDisplay.set(node.id, node.id);
+          const autoKey = autoGroupKey(node);
+          if (autoKey) {
+            if (!autoBuckets.has(autoKey)) autoBuckets.set(autoKey, []);
+            autoBuckets.get(autoKey).push(node);
+          } else {
+            standalone.push(node);
+          }
         }
       });
 
@@ -495,7 +518,31 @@
           members: group.members
         });
       });
+
+      autoBuckets.forEach((bucket, key) => {
+        if (bucket.length <= 1) {
+          standalone.push(...bucket);
+          return;
+        }
+        const [zone, roleStr] = key.split('|');
+        const role = Number(roleStr) || 6;
+        const id = `auto:${key}`;
+        bucket.forEach(node => memberToDisplay.set(node.id, id));
+        const down = bucket.some(node => Number(node.status) !== 0 || deviceHasDownPort(node));
+        displayNodes.push({
+          id,
+          label: `${zoneTitle(zone)} ${roleLabel(role)}`,
+          zone,
+          role,
+          count: bucket.length,
+          down,
+          kind: 'group',
+          members: bucket.map(node => node.id)
+        });
+      });
+
       standalone.forEach(node => {
+        memberToDisplay.set(node.id, node.id);
         const label = aliasFor(node.id) || node.label || node.id;
         displayNodes.push({
           id: node.id,
@@ -540,12 +587,47 @@
     }
 
     function layoutNodes() {
-      const byZone = new Map(zones.map(zone => [zone.id, []]));
+      const byZone = new Map(zoneDefinitions.map(zone => [zone.id, []]));
       state.displayNodes.forEach(node => {
         if (!byZone.has(node.zone)) byZone.set('core', []);
         byZone.get(node.zone).push(node);
       });
-      zones.forEach(zone => {
+
+      function zoneHeight(def, list) {
+        const width = def.column === 'full' ? 1088 : (def.column === 'left' ? 650 : 416);
+        const cols = Math.max(2, Math.min(def.column === 'full' ? 7 : 4, Math.ceil(Math.sqrt(Math.max(list.length, 1) * (width / 160)))));
+        const rows = Math.max(1, Math.ceil(Math.max(list.length, 1) / cols));
+        return Math.max(def.minH, 68 + rows * 58);
+      }
+
+      const zoneById = new Map(zoneDefinitions.map(def => [def.id, def]));
+      const hasNodes = id => (byZone.get(id) || []).length > 0;
+      activeZones = [];
+      let y = 34;
+      ['exit', 'core'].forEach(id => {
+        if (!hasNodes(id)) return;
+        const def = zoneById.get(id);
+        const h = zoneHeight(def, byZone.get(id));
+        activeZones.push({ ...def, x: 38, y, w: 1088, h });
+        y += h + 22;
+      });
+      [['mgmt', 'oob'], ['compute', 'storage']].forEach(pair => {
+        const defs = pair.filter(hasNodes).map(id => zoneById.get(id));
+        if (!defs.length) return;
+        const rowH = Math.max(...defs.map(def => zoneHeight(def, byZone.get(def.id))));
+        defs.forEach(def => {
+          activeZones.push({
+            ...def,
+            x: def.column === 'left' ? 38 : 710,
+            y,
+            w: def.column === 'left' ? 650 : 416,
+            h: rowH
+          });
+        });
+        y += rowH + 22;
+      });
+
+      activeZones.forEach(zone => {
         const list = byZone.get(zone.id) || [];
         list.sort((a, b) => a.role - b.role || String(a.label).localeCompare(String(b.label)));
         const cols = Math.max(2, Math.min(6, Math.ceil(Math.sqrt(list.length * (zone.w / Math.max(zone.h, 1))))));
@@ -571,7 +653,7 @@
 
     function colorBySpeed(speed, down) {
       if (down) return '#ef4444';
-      if (speed >= 400) return '#ef4444';
+      if (speed >= 400) return '#06b6d4';
       if (speed >= 200) return '#22c55e';
       if (speed >= 100) return '#fb923c';
       if (speed >= 25) return '#8b5cf6';
@@ -603,8 +685,11 @@
       layoutNodes();
       svg.innerHTML = '';
       const width = Math.max(1164, svg.clientWidth || 1164);
-      const height = Math.max(760, svg.clientHeight || 760);
+      const contentHeight = Math.max(760, ...activeZones.map(zone => zone.y + zone.h + 36));
+      const height = Math.max(contentHeight, svg.clientHeight || 760);
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.setAttribute('height', String(height));
+      svg.style.height = height + 'px';
 
       const zoneLayer = svgEl('g');
       const linkLayer = svgEl('g');
@@ -613,7 +698,7 @@
       svg.appendChild(linkLayer);
       svg.appendChild(nodeLayer);
 
-      zones.forEach(zone => {
+      activeZones.forEach(zone => {
         zoneLayer.appendChild(svgEl('rect', { class: 'zone-bg', x: zone.x, y: zone.y, width: zone.w, height: zone.h, rx: 8 }));
         const title = svgEl('text', { class: 'zone-label', x: zone.x + 18, y: zone.y + 26 });
         title.textContent = zone.title;
