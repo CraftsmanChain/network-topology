@@ -19,6 +19,7 @@ DEFAULT_PROM_URLS = [
     "http://10.102.10.6:9090/api/v1/query",
 ]
 ACTIVE_PROM_URL = ""
+DEVICES_META_JSON = "devices-meta.json"
 
 
 def candidate_prom_urls():
@@ -67,6 +68,13 @@ def prometheus_available() -> bool:
     return bool(choose_prom_url())
 
 
+def base_instance(value: str) -> str:
+    value = (value or "").strip()
+    if ":" in value:
+        return value.split(":", 1)[0]
+    return value
+
+
 # 从设备名称查询对应的IP地址
 def get_device_ip_from_name(device_name):
     """
@@ -98,25 +106,54 @@ def get_device_ip_from_name(device_name):
     # 如果都查询不到，返回 None
     return None
 
-# 从 devices.json 读取设备列表
-def load_devices_from_json():
+def load_devices_inventory():
     try:
+        if os.path.exists(DEVICES_META_JSON):
+            with open(DEVICES_META_JSON, "r", encoding="utf-8") as f:
+                devices_meta = json.load(f)
+            if isinstance(devices_meta, list) and devices_meta:
+                devices = []
+                for item in devices_meta:
+                    if not isinstance(item, dict):
+                        continue
+                    device_id = (item.get("id") or item.get("label") or "").strip()
+                    if not device_id:
+                        continue
+                    ip = base_instance(item.get("ip") or item.get("instance") or item.get("snmp_target"))
+                    devices.append({
+                        "id": device_id,
+                        "label": (item.get("label") or device_id).strip(),
+                        "ip": ip,
+                        "status": int(item.get("status", 1 if not ip else 0)),
+                        "job": (item.get("job") or "").strip(),
+                    })
+                if devices:
+                    return devices
+
         with open("devices.json", "r", encoding="utf-8") as f:
             devices_list = json.load(f)
-        
-        # 将设备列表转换为名称到IP的映射
-        devices_map = {}
+
+        devices = []
         for device_name in devices_list:
-            # 查询设备名称对应的IP地址
+            if not isinstance(device_name, str):
+                continue
+            device_name = device_name.strip()
+            if not device_name:
+                continue
             ip = get_device_ip_from_name(device_name)
             if ip:
-                devices_map[device_name] = ip
                 print(f"[INFO] 找到设备 {device_name} 的IP地址: {ip}")
             else:
                 print(f"[WARNING] 无法找到设备 {device_name} 的IP地址")
-                devices_map[device_name] = ""  # 保持空字符串
-        
-        return devices_map
+            devices.append({
+                "id": device_name,
+                "label": device_name,
+                "ip": ip or "",
+                "status": 1 if not ip else 0,
+                "job": "",
+            })
+
+        return devices
     except FileNotFoundError:
         print("[ERROR] devices.json 文件不存在，程序退出")
         sys.exit(1)
@@ -271,22 +308,26 @@ def build_links_from_topology(topology: Dict) -> Tuple[List[Dict], List[Dict]]:
     return raw_links, filtered_links
 
 
-def write_links_from_topology(topology: Dict) -> bool:
+def write_links_from_topology(
+    topology: Dict,
+    raw_path: str = "links-alias-raw.json",
+    filtered_path: str = "links-alias.json",
+) -> bool:
     raw_links, filtered_links = build_links_from_topology(topology)
     if not raw_links:
-        print("[WARNING] 未从 topology.json 的端口别名解析到链路，未更新 links-raw.json 与 links.json")
+        print(f"[WARNING] 未从 topology.json 的端口别名解析到链路，未更新 {raw_path} 与 {filtered_path}")
         return False
 
-    with open("links-raw.json", "w", encoding="utf-8") as f:
+    with open(raw_path, "w", encoding="utf-8") as f:
         json.dump(raw_links, f, indent=2, ensure_ascii=False)
 
     if filtered_links:
-        with open("links.json", "w", encoding="utf-8") as f:
+        with open(filtered_path, "w", encoding="utf-8") as f:
             json.dump(filtered_links, f, indent=2, ensure_ascii=False)
     else:
-        print("[WARNING] 端口别名链路过滤后为空，未更新 links.json")
+        print(f"[WARNING] 端口别名链路过滤后为空，未更新 {filtered_path}")
 
-    print(f"[INFO] 已基于 topology.json 端口别名更新链路: raw={len(raw_links)}, filtered={len(filtered_links)}")
+    print(f"[INFO] 已基于 topology.json 端口别名更新链路到 {raw_path}/{filtered_path}: raw={len(raw_links)}, filtered={len(filtered_links)}")
     return True
 
 
@@ -295,55 +336,58 @@ def load_topology_json(path="topology.json") -> Dict:
         return json.load(f)
 
 
+def build_node(device: Dict, ports: List[Dict], status: int) -> Dict:
+    device_id = device.get("id", "")
+    return {
+        "id": device_id,
+        "label": device.get("label") or device_id,
+        "ip": device.get("ip", ""),
+        "model": "Prometheus Device",
+        "status": status,
+        "transmit": sum(p["transmit"] for p in ports),
+        "receive": sum(p["receive"] for p in ports),
+        "transmit_percent": round(sum(p["transmit_percent"] for p in ports) / len(ports), 3) if ports else 0.0,
+        "receive_percent": round(sum(p["receive_percent"] for p in ports) / len(ports), 3) if ports else 0.0,
+        "ports": ports,
+    }
+
+
+def write_topology(result: Dict):
+    with open("topology.json", "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+    print("[INFO] 数据已写入 topology.json")
+
+
 def main():
+    devices = load_devices_inventory()
     if not prometheus_available():
-        print("[WARNING] Prometheus 当前不可达或无 up 指标，未更新 topology.json、links-raw.json 与 links.json")
+        print("[WARNING] Prometheus 当前不可达或无 up 指标，按 devices.json 基线将节点标记为 DOWN")
+        result = {"nodes": [build_node(device, [], 1) for device in devices]}
+        if result["nodes"]:
+            write_topology(result)
         return
 
     result = {"nodes": []}
-    devices = load_devices_from_json()
-
-    for name, ip in devices.items():
+    for device in devices:
+        name = device["id"]
+        ip = device.get("ip", "")
+        base_status = int(device.get("status", 1 if not ip else 0))
         if not ip:
-            print(f"[WARNING] 跳过设备 {name}，未找到IP地址")
+            print(f"[WARNING] 设备 {name} 未找到IP地址，标记为 DOWN")
+            result["nodes"].append(build_node(device, [], 1))
             continue
-            
+
         print(f"[INFO] 正在处理设备: {name} ({ip})")
-        
-        # 所有设备都使用相同的逻辑处理
-        node_status = get_device_status(ip)
+        runtime_status = get_device_status(ip)
         ports = get_interface_data(ip)
-
-        if not ports:
-            node_status = 1
-
-        avg_recv_pct = sum(p["receive_percent"] for p in ports) / len(ports) if ports else 0.0
-        avg_trans_pct = sum(p["transmit_percent"] for p in ports) / len(ports) if ports else 0.0
-
-        node = {
-            "id": name,
-            "label": name,
-            "ip": ip,
-            "model": "Prometheus Device",
-            "status": node_status,
-            "transmit": sum(p["transmit"] for p in ports),
-            "receive": sum(p["receive"] for p in ports),
-            "transmit_percent": round(avg_trans_pct, 3),
-            "receive_percent": round(avg_recv_pct, 3),
-            "ports": ports
-        }
-
-        result["nodes"].append(node)
+        node_status = 1 if base_status != 0 or runtime_status != 0 or not ports else 0
+        result["nodes"].append(build_node(device, ports, node_status))
 
     if not result["nodes"]:
-        print("[WARNING] 未采集到任何设备端口数据，未更新 topology.json、links-raw.json 与 links.json")
+        print("[WARNING] 未采集到任何设备数据，未更新 topology.json")
         return
 
-    with open("topology.json", "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
-
-    print("[INFO] 数据已写入 topology.json")
-    write_links_from_topology(result)
+    write_topology(result)
 
 
 if __name__ == "__main__":

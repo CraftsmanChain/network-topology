@@ -3,5 +3,6 @@ Environment=HOME=/root
 Environment=GOCACHE=/root/.cache/go-build
 Type=oneshot
 WorkingDirectory=/ops/web/topology
+ExecStart=/usr/bin/python3 /ops/web/topology/cmd/devices.py
 ExecStart=/snap/bin/go run /ops/web/topology/cmd/lldp.go
 ExecStart=/usr/bin/python3 /ops/web/topology/cmd/snmp.py

@@ -7,7 +7,8 @@
 ## 目录结构
 - `server/` 后端服务（Gin），提供静态资源与配置 API
 - `cmd/` 数据采集脚本：
-  - `cmd/lldp.go` 基于 LLDP 指标生成 `links.json` 并增量维护 `devices.json`
+  - `cmd/devices.py` 基于监控中的网络设备 `up` 指标同步 `devices.json` 与 `devices-meta.json`
+  - `cmd/lldp.go` 基于 LLDP 指标生成 `links-raw.json` 与 `links.json`
   - `cmd/snmp.py` 基于 SNMP/流量指标生成 `topology.json`
 - `config/` 配置文件与示例（受保护写入）
   - `.users.local` 两行明文：第1行用户名，第2行密码
@@ -17,6 +18,7 @@
 - `examples/` 采集任务的 systemd 定时示例
 - 根目录下若干前端页面：`topology.html`、`config.html`、`login.html`、`debug.html`、`ethernet.html`
 - 数据文件（前端只读）：`devices.json`、`links.json`、`topology.json`
+- 调试/辅助数据：`devices-meta.json`、`links-raw.json`、`links-alias-raw.json`、`links-alias.json`
 
 ## 快速开始
 - 依赖：
@@ -52,16 +54,26 @@
 - 页面在缺失配置时提供默认包的下载入口，放置到 `config/` 即生效。
 
 ## 数据源与采集
-- `devices.json` 设备名列表（由采集维护）。
-- `links.json` 设备间连线（由 LLDP 采集生成）。
+- `devices.json` 设备名列表，以监控中的网络设备 `up` 指标为准。
+- `devices-meta.json` 设备元数据，包含 IP、job、当前 up/down 状态等。
+- `links.json` 设备间连线（正式链路，由 LLDP 采集生成）。
+- `links-raw.json` LLDP 原始链路（调试用）。
+- `links-alias.json` / `links-alias-raw.json` 基于端口别名推导的辅助链路（调试/兜底用）。
 - `topology.json` 设备端口速率与流量聚合（由 SNMP/Prometheus 采集生成）。
 - 采集脚本：
-  - 编辑 `cmd/snmp.py` 中的 `PROM_URL`，运行：
+  - 运行设备清单同步：
+    - `python3 cmd/devices.py`
+    - 输出更新 `devices.json` 与 `devices-meta.json`
+  - 运行节点/端口采集：
     - `python3 cmd/snmp.py`
     - 输出更新 `topology.json`
-  - 编辑 `cmd/lldp.go` 中的 `promURL`，运行：
+    - 不再覆盖 `links.json`
+  - 运行 LLDP 链路采集：
     - `go run cmd/lldp.go`
-    - 输出 `links-raw.json`（原始）与过滤后的 `links.json`，并增量追加 `devices.json`
+    - 输出 `links-raw.json`（原始）与过滤后的 `links.json`
+  - 如需从 `topology.json` 的端口别名推导辅助链路，可运行：
+    - `python3 cmd/snmp.py --links-from-topology`
+    - 输出 `links-alias-raw.json` 与 `links-alias.json`
 - 可参考 `examples/snmp.service` 与 `examples/snmp.timer` 将采集任务以 systemd 定时运行。
 
 ## 后端 API

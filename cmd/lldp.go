@@ -187,7 +187,7 @@ func main() {
 	sysData, _ := queryPrometheus(promURL, "lldpRemSysName")
 	// 查询对端端口描述，用于在遇到简写端口名时覆盖为完整名称
 	remPortDescData, _ := queryPrometheus(promURL, "lldpRemPortDesc")
-	// 额外查询：本机 sysName 指标（标签 sysName）用于 devices.json 和 Source 名称统一
+	// 额外查询：本机 sysName 指标（标签 sysName）用于 Source 名称统一
 	hostSysData, _ := queryPrometheus(promURL, "sysName")
 	// 查询接口名：用于当本地端口 ID 不可读时回退为 ifName/ifDescr
 	// 查询 ifIndex 指标（包含 ifDescr 和 ifName 信息）
@@ -282,7 +282,7 @@ func main() {
 		remPortDescMap[host][portNum] = desc
 	}
 
-	// 本机 sysName 映射与设备候选（用于后续 devices.json 与 Source 名称统一）
+	// 本机 sysName 映射（用于 Source 名称统一）
 	for _, r := range hostSysData.Data.Result {
 		host := getHost(r.Metric)
 		sys := strings.TrimSpace(r.Metric["sysName"])
@@ -517,7 +517,7 @@ func main() {
 	_ = os.WriteFile("links-raw.json", rawBytes, 0644)
 	debugPrintln("Wrote links-raw.json")
 
-	// 允许节点列表改为从 Prometheus 查询并增量维护到 devices.json
+	// devices.json 由独立设备同步脚本维护，这里仅读取其结果用于链路过滤。
 	devicesPath := "devices.json"
 	var devices []string
 	existing := make(map[string]bool)
@@ -531,44 +531,14 @@ func main() {
 	}
 	debugPrintf("Loaded devices.json: %d items\n", len(devices))
 
-	// 从 Prometheus 的 sysName 指标收集设备名（标签 sysName）
-	candidates := make(map[string]bool)
-	for _, r := range hostSysData.Data.Result {
-		sys := strings.TrimSpace(r.Metric["sysName"])
-		if sys != "" {
-			candidates[sys] = true
-		}
-	}
-	debugPrintf("Candidates collected: %d\n", len(candidates))
-
-	// 仅追加不存在的设备名，不删除已有的
-	changed := false
-	for name := range candidates {
-		if name == "" {
-			continue
-		}
-		if !existing[name] {
-			devices = append(devices, name)
-			existing[name] = true
-			changed = true
-		}
-	}
-	debugPrintf("New devices added: %t (total now %d)\n", changed, len(devices))
-
-	// 若有新增，更新 devices.json
-	if changed {
-		devBytes, _ := json.MarshalIndent(devices, "", "  ")
-		_ = os.WriteFile(devicesPath, devBytes, 0644)
-		debugPrintln("Wrote devices.json")
-	}
-
-	// 使用 devices.json 中维护的设备作为允许集合
+	// 使用 devices.json 中维护的设备作为允许集合。
+	// 若文件缺失或为空，则不过滤，避免把 LLDP 原始结果全部丢掉。
 	allowed := existing
 
 	// 过滤链路
 	var filtered []Link
 	for _, l := range links {
-		if allowed[l.Source] && allowed[l.Target] {
+		if len(allowed) == 0 || (allowed[l.Source] && allowed[l.Target]) {
 			filtered = append(filtered, l)
 		}
 	}
