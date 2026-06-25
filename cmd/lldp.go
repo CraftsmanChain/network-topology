@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 type PromResult struct {
@@ -116,11 +118,35 @@ func getHost(m map[string]string) string {
 	return ""
 }
 
-// queryPrometheus 查询 Prometheus 指标
+func defaultPromURLs() []string {
+	if v := strings.TrimSpace(os.Getenv("PROM_QUERY_URL")); v != "" {
+		return []string{v}
+	}
+	if v := strings.TrimSpace(os.Getenv("PROM_URL")); v != "" {
+		return []string{v}
+	}
+	return []string{
+		"http://10.27.3.68:8481/select/0/prometheus",
+		"http://10.102.10.6:9090",
+	}
+}
+
+func buildQueryURL(promURL, metric string) string {
+	promURL = strings.TrimRight(strings.TrimSpace(promURL), "/")
+	if !strings.HasSuffix(promURL, "/api/v1/query") {
+		promURL += "/api/v1/query"
+	}
+	values := neturl.Values{}
+	values.Set("query", metric)
+	return promURL + "?" + values.Encode()
+}
+
+// queryPrometheus 查询 Prometheus/VictoriaMetrics 指标
 func queryPrometheus(promURL, metric string) (PromResult, error) {
-	url := fmt.Sprintf("%s/api/v1/query?query=%s", promURL, metric)
-	debugPrintf("Querying: %s\n", url)
-	resp, err := http.Get(url)
+	queryURL := buildQueryURL(promURL, metric)
+	debugPrintf("Querying: %s\n", queryURL)
+	client := http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(queryURL)
 	if err != nil {
 		debugPrintf("HTTP error: %v\n", err)
 		return PromResult{}, err
@@ -139,15 +165,29 @@ func queryPrometheus(promURL, metric string) (PromResult, error) {
 	return result, err
 }
 
+func choosePromURL() string {
+	for _, candidate := range defaultPromURLs() {
+		if upData, err := queryPrometheus(candidate, "up"); err == nil && len(upData.Data.Result) > 0 {
+			fmt.Printf("使用监控查询地址: %s\n", strings.TrimRight(candidate, "/"))
+			return strings.TrimRight(candidate, "/")
+		}
+	}
+	return ""
+}
+
 func main() {
-	promURL := "http://10.102.10.6:9090"
+	promURL := choosePromURL()
+	if promURL == "" {
+		fmt.Println("Prometheus/VictoriaMetrics 当前不可达或无 up 指标，未更新 links-raw.json 与 links.json")
+		return
+	}
 
 	locData, _ := queryPrometheus(promURL, "lldpLocPortId")
 	remData, _ := queryPrometheus(promURL, "lldpRemPortId")
 	sysData, _ := queryPrometheus(promURL, "lldpRemSysName")
 	// 查询对端端口描述，用于在遇到简写端口名时覆盖为完整名称
 	remPortDescData, _ := queryPrometheus(promURL, "lldpRemPortDesc")
-	// 额外查询：本机 sysName 指标（标签 sysName）用于 devices.json 和 Source 名称统一
+	// 额外查询：本机 sysName 指标（标签 sysName）用于 Source 名称统一
 	hostSysData, _ := queryPrometheus(promURL, "sysName")
 	// 查询接口名：用于当本地端口 ID 不可读时回退为 ifName/ifDescr
 	// 查询 ifIndex 指标（包含 ifDescr 和 ifName 信息）
@@ -242,7 +282,7 @@ func main() {
 		remPortDescMap[host][portNum] = desc
 	}
 
-	// 本机 sysName 映射与设备候选（用于后续 devices.json 与 Source 名称统一）
+	// 本机 sysName 映射（用于 Source 名称统一）
 	for _, r := range hostSysData.Data.Result {
 		host := getHost(r.Metric)
 		sys := strings.TrimSpace(r.Metric["sysName"])
@@ -405,51 +445,26 @@ func main() {
 			}
 		}
 		targetHost := sysNameMap[host][localPortNum]
-		// 对端端口名称应该从对端设备的 lldpLocPortId 获取
-		// 首先通过 targetHost 找到对端设备的 instance
-		targetInst := sysNameToInstance[targetHost]
-		if targetInst == "" {
-			targetInst = instanceByHost[targetHost]
-		}
+		// 对端端口名必须来自当前 LLDP 邻居记录。不能遍历对端设备所有端口取第一个，
+		// Go map 遍历顺序不稳定，会把链路随机绑定到错误的对端端口。
+		targetPort := normalizePortName(strings.TrimSpace(decodeHex(r.Metric["lldpRemPortId"])))
 
-		// 对端端口名称：使用对端设备的 lldpLocPortId 解码
-		targetPort := ""
-		if targetInst != "" {
-			// 获取对端设备的所有端口映射
-			if portMap, ok := locByInstance[targetInst]; ok {
-				// 遍历对端设备的所有端口，找到匹配的端口
-				for portNum, portId := range portMap {
-					decodedPort := decodeHex(portId)
-					if decodedPort != "" && isPrintableASCII(decodedPort) {
-						targetPort = decodedPort
-						debugPrintf("TargetPort from target device %s port %s: %s\n", targetInst, portNum, targetPort)
-						break
-					}
-				}
-			}
-		}
-
-		// 如果无法从对端设备获取，回退到本端记录的 lldpRemPortId 解码
-		if targetPort == "" {
-			targetPort = decodeHex(r.Metric["lldpRemPortId"])
-			if targetPort == "" || !isPrintableASCII(targetPort) {
-				fallback := fmt.Sprintf("Port%s", localPortNum)
-				debugPrintf("TargetPort fallback to Port#: source=%s target=%s instance=%s portNum=%s value=%s\n", sourceHost, targetHost, inst, localPortNum, fallback)
-				targetPort = fallback
-			}
-		}
-
-		// 覆写简写的对端端口名：若 lldpRemPortId 为类似 "Eth4(Port4)" 的简写且存在 lldpRemPortDesc，则使用 lldpRemPortDesc
+		// 覆写简写的对端端口名：若 lldpRemPortId 为类似 "Eth4(Port4)" 的简写或不可读，
+		// 且存在同一条 LLDP 记录的 lldpRemPortDesc，则使用 lldpRemPortDesc。
 		remDesc := ""
 		if m := remPortDescMap[host]; m != nil {
 			remDesc = strings.TrimSpace(m[localPortNum])
 		}
 		if remDesc != "" {
-			decodedRemId := decodeHex(r.Metric["lldpRemPortId"])
-			if isAbbreviatedPortName(decodedRemId) || isAbbreviatedPortName(targetPort) {
+			if targetPort == "" || !isPrintableASCII(targetPort) || isAbbreviatedPortName(targetPort) {
 				debugPrintf("TargetPort override using lldpRemPortDesc: host=%s localPortNum=%s old=%s new=%s\n", host, localPortNum, targetPort, remDesc)
 				targetPort = normalizePortName(remDesc)
 			}
+		}
+		if targetPort == "" || !isPrintableASCII(targetPort) {
+			fallback := fmt.Sprintf("Port%s", localPortNum)
+			debugPrintf("TargetPort fallback to Port#: source=%s target=%s instance=%s portNum=%s value=%s\n", sourceHost, targetHost, inst, localPortNum, fallback)
+			targetPort = fallback
 		}
 
 		if sourceHost == "" || sourcePort == "" || targetHost == "" || targetPort == "" {
@@ -502,7 +517,7 @@ func main() {
 	_ = os.WriteFile("links-raw.json", rawBytes, 0644)
 	debugPrintln("Wrote links-raw.json")
 
-	// 允许节点列表改为从 Prometheus 查询并增量维护到 devices.json
+	// devices.json 由独立设备同步脚本维护，这里仅读取其结果用于链路过滤。
 	devicesPath := "devices.json"
 	var devices []string
 	existing := make(map[string]bool)
@@ -516,44 +531,14 @@ func main() {
 	}
 	debugPrintf("Loaded devices.json: %d items\n", len(devices))
 
-	// 从 Prometheus 的 sysName 指标收集设备名（标签 sysName）
-	candidates := make(map[string]bool)
-	for _, r := range hostSysData.Data.Result {
-		sys := strings.TrimSpace(r.Metric["sysName"])
-		if sys != "" {
-			candidates[sys] = true
-		}
-	}
-	debugPrintf("Candidates collected: %d\n", len(candidates))
-
-	// 仅追加不存在的设备名，不删除已有的
-	changed := false
-	for name := range candidates {
-		if name == "" {
-			continue
-		}
-		if !existing[name] {
-			devices = append(devices, name)
-			existing[name] = true
-			changed = true
-		}
-	}
-	debugPrintf("New devices added: %t (total now %d)\n", changed, len(devices))
-
-	// 若有新增，更新 devices.json
-	if changed {
-		devBytes, _ := json.MarshalIndent(devices, "", "  ")
-		_ = os.WriteFile(devicesPath, devBytes, 0644)
-		debugPrintln("Wrote devices.json")
-	}
-
-	// 使用 devices.json 中维护的设备作为允许集合
+	// 使用 devices.json 中维护的设备作为允许集合。
+	// 若文件缺失或为空，则不过滤，避免把 LLDP 原始结果全部丢掉。
 	allowed := existing
 
 	// 过滤链路
 	var filtered []Link
 	for _, l := range links {
-		if allowed[l.Source] && allowed[l.Target] {
+		if len(allowed) == 0 || (allowed[l.Source] && allowed[l.Target]) {
 			filtered = append(filtered, l)
 		}
 	}
@@ -570,4 +555,3 @@ func main() {
 		debugPrintln("Wrote links.json")
 	}
 }
-

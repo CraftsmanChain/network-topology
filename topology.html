@@ -268,6 +268,24 @@ body {
 .reset-btn:hover {
     background: #2a3751;
 }
+.modern-btn {
+    position: fixed;
+    top: 10px;
+    right: 106px;
+    z-index: 1100;
+    background: #243049;
+    color: #00e5ff;
+    border: 1px solid #2a3244;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+    text-decoration: none;
+}
+.modern-btn:hover {
+    background: #2a3751;
+}
 /* 管理员模式按钮与弹窗样式 */
 .admin-btn {
     position: fixed;
@@ -417,6 +435,7 @@ body {
         </div>
     </div>
     <div id="topo-canvas" class="topo-canvas"></div>
+    <a id="modern-topo" class="modern-btn" href="/topology/">架构视图</a>
     <button id="reset-topo" class="reset-btn">重置拓扑</button>
     <!-- 前台编辑工具条（管理员登录 + edit_mode 时显示） -->
     <div id="front-edit-toolbar" class="edit-toolbar" style="display:none;">
@@ -497,6 +516,52 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+function getDisplayConfig() {
+    const cfg = window.__TOPO_CFG || DEFAULTS.topology || {};
+    return (cfg && cfg.display) || {};
+}
+
+function shouldShowMethInterfaces() {
+    return getDisplayConfig().showMethInterfaces === true;
+}
+
+function isMethPortName(name) {
+    return /^meth/i.test(String(name || '').trim());
+}
+
+function isMgmtNumberPortName(name) {
+    return /^mgmt [0-9]+$/i.test(String(name || '').trim());
+}
+
+function isHiddenManagementPortName(name) {
+    return isMethPortName(name) || isMgmtNumberPortName(name);
+}
+
+function isMethPort(port) {
+    if (!port) return false;
+    return isHiddenManagementPortName(port.ifName) || isHiddenManagementPortName(port.ifDescr) || isHiddenManagementPortName(port.ifAlias) || isHiddenManagementPortName(port.ifIndex);
+}
+
+function getEffectivePorts(ports) {
+    const list = Array.isArray(ports) ? ports : [];
+    if (shouldShowMethInterfaces()) return list;
+    return list.filter(p => !isMethPort(p));
+}
+
+function linkUsesMethInterface(link) {
+    return !!link && (isHiddenManagementPortName(link.sourcePort) || isHiddenManagementPortName(link.targetPort));
+}
+
+function getEffectiveRawLinksForEdge(edge) {
+    const list = gatherRawLinksForEdge(edge);
+    if (shouldShowMethInterfaces()) return list;
+    return list.filter(link => !linkUsesMethInterface(link));
+}
+
+function isPortUp(port) {
+    return !!port && (port.status === 1 || ((port.transmit || 0) > 0 || (port.receive || 0) > 0));
+}
+
 // =========== 管理员模式 & 配置加载/生成 ===========
 const CONFIG_PATHS = {
   groupRules: 'config/group_rules.json',
@@ -553,7 +618,7 @@ const DEFAULTS = {
     features: { line_monitors: { enabled: false, names: [] }, auto_groups: { enabled: false } },
     refresh: { devices_ms: 5000, links_ms: 3000 },
     dynamic_links: { debounce_ms: 500, grace_ms: 3000 },
-    display: { showPorts: false, showLabels: 'auto' }
+    display: { showPorts: false, showLabels: 'auto', showMethInterfaces: false }
   },
   positions: { version: 1, nodes: {}, groups: {} },
   linkOverrides: { version: 1, whitelist: [], blacklist: [] }
@@ -668,7 +733,7 @@ function mergeProfile(base, prof) {
   const copy = (k) => { if (typeof prof[k] !== 'undefined') out[k] = prof[k]; };
   copy('title');
   // 嵌套对象按键覆盖
-  ['default_icons','types','aliases'].forEach(key => {
+  ['default_icons','types','aliases','display'].forEach(key => {
     if (prof[key] && typeof prof[key] === 'object') {
       out[key] = { ...(out[key] || {}), ...(prof[key] || {}) };
     }
@@ -1258,9 +1323,9 @@ function getLinkColor(d, nodeMap) {
     const srcNode = nodeMap.get(d.from);
     const tgtNode = nodeMap.get(d.to);
     const srcUtil = srcNode ? calcUtil(srcNode.transmit||0, srcNode.receive||0,
-        (srcNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+        getEffectivePorts(srcNode.ports).filter(isPortUp).length||1) : 0;
     const tgtUtil = tgtNode ? calcUtil(tgtNode.transmit||0, tgtNode.receive||0,
-        (tgtNode.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1) : 0;
+        getEffectivePorts(tgtNode.ports).filter(isPortUp).length||1) : 0;
     const maxUtil = Math.max(srcUtil, tgtUtil);
     if (maxUtil < 20) return '#006400';
     if (maxUtil <= 70) return '#ffd166';
@@ -1392,7 +1457,9 @@ function showDeviceInfo(d) {
 
     const canGoBack = !!(window.sidebarContext && window.sidebarContext.type === 'group' && window.sidebarContext.groupNode);
 
-    const upPorts = d.ports ? d.ports.filter(p => p.status === 1 || (p.transmit > 0 || p.receive > 0)).length : 0;
+    const effectivePorts = getEffectivePorts(d.ports);
+    const hiddenMethPorts = Array.isArray(d.ports) ? d.ports.length - effectivePorts.length : 0;
+    const upPorts = effectivePorts.filter(isPortUp).length;
     const hasPercent = (typeof d.transmit_percent === 'number') || (typeof d.receive_percent === 'number');
     const deviceUtil = hasPercent
         ? Math.max(d.transmit_percent || 0, d.receive_percent || 0)
@@ -1411,10 +1478,14 @@ function showDeviceInfo(d) {
     html += `<p>接收流量: ${formatBytes(d.receive || 0)}</p>`;
     html += `</div>`;
 
-    if (d.ports && d.ports.length > 0) {
+    if (hiddenMethPorts > 0) {
+        html += `<p>已隐藏管理接口: ${hiddenMethPorts}</p>`;
+    }
+
+    if (effectivePorts.length > 0) {
         html += `<table class="port-table"><tr><th>端口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr>`;
-        d.ports.forEach(p => {
-            const portUp = p.status === 1 || (p.transmit > 0 || p.receive > 0);
+        effectivePorts.forEach(p => {
+            const portUp = isPortUp(p);
             const portUtil = Math.max(p.transmit_percent || 0, p.receive_percent || 0);
             html += `<tr>
                 <td>${p.ifDescr || p.ifIndex}</td>
@@ -1483,7 +1554,9 @@ function showLinkInfo(edgeData) {
     window.sidebarContext = null;
     sidebarTitle.textContent = '链路信息';
     // 组感知：使用辅助函数聚合端口对，并显示组或设备标签
-    const links = gatherRawLinksForEdge(edgeData);
+    const allLinks = gatherRawLinksForEdge(edgeData);
+    const links = shouldShowMethInterfaces() ? allLinks : allLinks.filter(link => !linkUsesMethInterface(link));
+    const hiddenMethLinks = allLinks.length - links.length;
     const fromLabel = String(edgeData.from).startsWith('group:')
         ? (networkData.nodes.get(edgeData.from)?.label || edgeData.from)
         : (nodeMap.get(edgeData.from)?.label || nodeMap.get(edgeData.from)?.id || edgeData.from);
@@ -1500,6 +1573,9 @@ function showLinkInfo(edgeData) {
     const isDown = edgeHasDownInterPort(edgeData, nodeMap);
     const currStatusStr = forced ? (`覆盖: ${forced}`) : (isDown ? 'DOWN' : 'UP');
     html += `<p>状态: <span class="${isDown ? 'status-down' : 'status-up'}">${currStatusStr}</span></p>`;
+    if (hiddenMethLinks > 0) {
+        html += `<p>已隐藏管理链路: ${hiddenMethLinks}</p>`;
+    }
     html += `</div>`;
     html += `<div style="margin:8px 0;"><button id="link-expand-toggle" class="edit-btn">展示全部列</button></div>`;
     let tableHtml = '';
@@ -1529,8 +1605,8 @@ function showLinkInfo(edgeData) {
             const tgtNode = nodeMap.get(link.target);
             const srcPort = findPortByName(srcNode, link.sourcePort);
             const tgtPort = findPortByName(tgtNode, link.targetPort);
-            const srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
-            const tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+            const srcUp = isPortUp(srcPort);
+            const tgtUp = isPortUp(tgtPort);
             const anyDown = !srcUp || !tgtUp;
             tableHtml += `<tr class="${anyDown ? 'alarm alarm-row' : ''}">`;
             tableHtml += `<td>${srcNode ? (srcNode.label || srcNode.id) : link.source}</td>`;
@@ -1887,8 +1963,10 @@ function buildPortIndex(nodesArr) {
             (n.ports || []).forEach(p => {
                 const d1 = normalizePortName(p.ifDescr);
                 const d2 = normalizePortName(p.ifIndex);
+                const d3 = normalizePortName(p.ifName);
                 if (d1) m.set(d1, p);
                 if (d2) m.set(d2, p);
+                if (d3) m.set(d3, p);
             });
             idx.set(n.id, m);
         });
@@ -1907,7 +1985,8 @@ function findPortByName(node, portName) {
         const p = ports[i];
         const d1 = normalizePortName(p.ifDescr);
         const d2 = normalizePortName(p.ifIndex);
-        if (d1 === target || d2 === target) return p;
+        const d3 = normalizePortName(p.ifName);
+        if (d1 === target || d2 === target || d3 === target) return p;
     }
     return null;
 }
@@ -1967,7 +2046,7 @@ function edgeHasDownInterPort(edge, nodeMap) {
         if (forced === 'DOWN') return true;
         if (forced === 'UP') return false;
     } catch (e) { /* ignore */ }
-    const rawLinks = gatherRawLinksForEdge(edge);
+    const rawLinks = getEffectiveRawLinksForEdge(edge);
     if (rawLinks.length === 0) {
         const fromIds = expandEndpointToDevices(edge.from);
         const toIds = expandEndpointToDevices(edge.to);
@@ -1980,8 +2059,8 @@ function edgeHasDownInterPort(edge, nodeMap) {
         const tgtNode = nodeMap.get(rec.target);
         const srcPort = findPortByName(srcNode, rec.sourcePort);
         const tgtPort = findPortByName(tgtNode, rec.targetPort);
-        const srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
-        const tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+        const srcUp = isPortUp(srcPort);
+        const tgtUp = isPortUp(tgtPort);
         if (!srcUp || !tgtUp) return true;
     }
     return false;
@@ -2162,10 +2241,7 @@ function markSidebarContent(t) {
 // 检查互联端口是否DOWN
 function hasDownInterPort(node) {
     if (!node || !node.ports) return false;
-    return node.ports.some(p => {
-        const portUp = p.status === 1 || (p.transmit > 0 || p.receive > 0);
-        return !portUp;
-    });
+    return getEffectivePorts(node.ports).some(p => !isPortUp(p));
 }
 
 // 获取节点图标
@@ -2203,7 +2279,7 @@ function getNodeIconWithInterPort(d) {
 
 // 获取连线颜色
 function getLinkColorWithInterPort(d, nodeMap) {
-    const rawLinks = gatherRawLinksForEdge(d);
+    const rawLinks = getEffectiveRawLinksForEdge(d);
     // 覆盖状态（编辑模式可设置）：link_overrides.status[undirectedKey] = 'UP'/'DOWN'/null
     try {
         const undirectedKey = makeUndirectedKey(d.from, d.to);
@@ -2230,8 +2306,8 @@ function getLinkColorWithInterPort(d, nodeMap) {
             const tgtNode = nodeMap.get(rec.target);
             const srcPort = findPortByName(srcNode, rec.sourcePort);
             const tgtPort = findPortByName(tgtNode, rec.targetPort);
-            const srcUp = srcPort ? (srcPort.status === 1 || (srcPort.transmit > 0 || srcPort.receive > 0)) : false;
-            const tgtUp = tgtPort ? (tgtPort.status === 1 || (tgtPort.transmit > 0 || tgtPort.receive > 0)) : false;
+            const srcUp = isPortUp(srcPort);
+            const tgtUp = isPortUp(tgtPort);
             if (!srcUp || !tgtUp) { down = true; break; }
         }
     }
@@ -2244,7 +2320,7 @@ function getLinkColorWithInterPort(d, nodeMap) {
 function getEdgeMaxUtil(edge, nodeMap) {
     function nodeUtil(n) {
         if (!n) return 0;
-        const upPorts = (n.ports||[]).filter(p=>p.status===1||(p.transmit>0||p.receive>0)).length||1;
+        const upPorts = getEffectivePorts(n.ports).filter(isPortUp).length || 1;
         return calcUtil(n.transmit||0, n.receive||0, upPorts);
     }
     const fromIds = expandEndpointToDevices(edge.from);
@@ -2465,6 +2541,7 @@ async function loadTopology() {
         const agg = new Map(); // undirectedKey -> {from,to}
         linkMap.forEach((arr, key) => {
             (arr || []).forEach(rec => {
+                if (!shouldShowMethInterfaces() && linkUsesMethInterface(rec)) return;
                 const efFrom = memberToGroupId.get(rec.source) || rec.source;
                 const efTo = memberToGroupId.get(rec.target) || rec.target;
                 if (efFrom === efTo) return; // 跳过自环

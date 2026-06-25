@@ -1,0 +1,19 @@
+[Unit]
+Description=Topology Web POC
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/ops/web/topology-poc/server
+Environment=PORT=8281
+Environment=WEB_ROOT=/ops/web/topology-poc
+Environment=CONFIG_DIR=/ops/web/topology/config
+Environment=DATA_ROOT=/ops/web/topology
+Environment=HOME=/root
+Environment=GOCACHE=/root/.cache/go-build
+ExecStart=/ops/web/topology-poc/server/topology-poc
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

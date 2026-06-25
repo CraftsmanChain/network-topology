@@ -1,0 +1,1702 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>架构拓扑视图</title>
+  <script src="https://unpkg.com/animejs@3.2.2/lib/anime.min.js"></script>
+  <style>
+    :root {
+      --bg: #08111f;
+      --surface: #0f172a;
+      --panel: #111827;
+      --panel-2: #172033;
+      --line: #263245;
+      --line-strong: #39516f;
+      --text: #e5edf7;
+      --muted: #91a0b6;
+      --accent: #22d3ee;
+      --ok: #22c55e;
+      --bad: #ef4444;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      grid-template-rows: 56px minmax(0, 1fr);
+      height: 100vh;
+    }
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: #0f172a;
+    }
+    .title {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      min-width: 0;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 700;
+      color: #67e8f9;
+      letter-spacing: 0;
+    }
+    .title span {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .actions a,
+    .actions button {
+      color: var(--text);
+      background: #1f2937;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 7px 10px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .actions a:hover,
+    .actions button:hover {
+      border-color: var(--accent);
+    }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      user-select: none;
+    }
+    .toggle input { margin: 0; }
+    .stage {
+      position: relative;
+      overflow: auto;
+      background: #08111f;
+    }
+    .canvas-wrap {
+      position: relative;
+      min-width: 1180px;
+      min-height: 760px;
+      width: 100%;
+      height: 100%;
+    }
+    svg#topology-svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 760px;
+    }
+    .side {
+      border-left: 1px solid var(--line);
+      background: #0f172a;
+      overflow: auto;
+      padding: 14px;
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .metric {
+      appearance: none;
+      text-align: left;
+      color: inherit;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      cursor: pointer;
+    }
+    .metric:hover,
+    .metric.active {
+      border-color: var(--accent);
+      background: #132033;
+    }
+    .metric b {
+      display: block;
+      font-size: 18px;
+      color: #f8fafc;
+    }
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .section {
+      padding: 12px 0;
+      border-top: 1px solid var(--line);
+    }
+    .section h2 {
+      margin: 0 0 10px;
+      color: #67e8f9;
+      font-size: 15px;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 7px 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .legend-line {
+      width: 72px;
+      height: 3px;
+      border-radius: 99px;
+      background: var(--line);
+    }
+    .detail {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+    .detail-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .detail-title b {
+      color: #f8fafc;
+      font-size: 14px;
+    }
+    .detail-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+    }
+    .detail-btn {
+      color: #67e8f9;
+      background: #172033;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 6px 9px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .detail-btn:hover { border-color: var(--accent); }
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin: 8px 0;
+    }
+    .info-item {
+      background: rgba(17, 24, 39, .72);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+    }
+    .info-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .info-item b {
+      color: #f8fafc;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .list {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .list-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: rgba(17, 24, 39, .55);
+      cursor: pointer;
+    }
+    .list-row:hover { border-color: var(--accent); }
+    .list-row strong {
+      color: #f8fafc;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .list-row small {
+      display: block;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 42px;
+      height: 22px;
+      border-radius: 999px;
+      padding: 0 8px;
+      font-size: 11px;
+      color: #dbeafe;
+      background: #1e293b;
+      border: 1px solid #334155;
+    }
+    .badge.ok { color: #bbf7d0; border-color: rgba(34,197,94,.45); background: rgba(22,101,52,.25); }
+    .badge.bad { color: #fecaca; border-color: rgba(239,68,68,.45); background: rgba(127,29,29,.25); }
+    .badge.warn { color: #fde68a; border-color: rgba(245,158,11,.45); background: rgba(120,53,15,.25); }
+    .detail-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    .port-table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+      color: #dbeafe;
+      background: rgba(15, 23, 42, .72);
+    }
+    .port-table th,
+    .port-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 6px 7px;
+      text-align: left;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .port-table th {
+      color: #93c5fd;
+      font-weight: 600;
+      background: #111827;
+    }
+    .port-table tr:last-child td { border-bottom: 0; }
+    .port-up { color: var(--ok); }
+    .port-down { color: var(--bad); }
+    .alarm-row { background: rgba(127, 29, 29, .22); }
+    .zone-label {
+      fill: #f8fafc;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .zone-sub {
+      fill: #94a3b8;
+      font-size: 11px;
+    }
+    .zone-bg {
+      fill: #0f1a2d;
+      stroke: #263245;
+      stroke-width: 1;
+      rx: 8;
+    }
+    .cluster-bg {
+      fill: rgba(15, 23, 42, .36);
+      stroke: rgba(100, 116, 139, .3);
+      stroke-width: 1;
+      stroke-dasharray: 5 5;
+    }
+    .cluster-label {
+      fill: #93c5fd;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .cluster-label.shared { fill: #cbd5e1; }
+    .cluster-label.ali { fill: #67e8f9; }
+    .cluster-label.zp { fill: #c4b5fd; }
+    .node-card {
+      cursor: pointer;
+      filter: drop-shadow(0 8px 14px rgba(0,0,0,.25));
+      opacity: .96;
+      transition: opacity .18s ease;
+    }
+    .node-card.dimmed {
+      opacity: .28;
+    }
+    .node-card.connected .node-rect,
+    .node-card.selected .node-rect {
+      stroke: #67e8f9;
+      stroke-width: 2;
+    }
+    .node-card.selected {
+      filter: drop-shadow(0 0 12px rgba(34, 211, 238, .5));
+    }
+    .node-rect {
+      fill: #172033;
+      stroke: #38506d;
+      stroke-width: 1.2;
+      rx: 7;
+    }
+    .node-card.down .node-rect {
+      fill: #2a1218;
+      stroke: #ef4444;
+    }
+    .node-card.group .node-rect {
+      fill: #102a3a;
+      stroke: #0ea5e9;
+    }
+    .node-title {
+      fill: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      pointer-events: none;
+      text-anchor: middle;
+    }
+    .node-meta {
+      fill: #94a3b8;
+      font-size: 10px;
+      pointer-events: none;
+      text-anchor: middle;
+    }
+    .node-dot {
+      stroke: rgba(255,255,255,.35);
+      stroke-width: 1;
+    }
+    .node-dot.alarm {
+      fill: var(--bad);
+      animation: alarmPulse 1.8s ease-in-out infinite;
+    }
+    .switch-icon-body {
+      stroke: rgba(224, 242, 254, .62);
+      stroke-width: 1.2;
+    }
+    .switch-icon-mark {
+      fill: none;
+      stroke: #e0f2fe;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .node-card.down .switch-icon-body {
+      stroke: rgba(254, 202, 202, .8);
+    }
+    .link {
+      fill: none;
+      stroke-linecap: round;
+      opacity: .62;
+      cursor: pointer;
+      pointer-events: stroke;
+      vector-effect: non-scaling-stroke;
+    }
+    .link-underlay {
+      fill: none;
+      stroke: rgba(8, 17, 31, .9);
+      stroke-linecap: round;
+      opacity: .82;
+      pointer-events: none;
+      vector-effect: non-scaling-stroke;
+    }
+    .link:hover {
+      opacity: 1;
+      filter: drop-shadow(0 0 6px rgba(34,211,238,.6));
+    }
+    .link.down {
+      opacity: .92;
+      stroke-dasharray: 8 6;
+      animation: linkAlarm 1.8s ease-in-out infinite;
+    }
+    .link.dimmed,
+    .link-underlay.dimmed {
+      opacity: .12;
+    }
+    .link.connected {
+      opacity: .95;
+    }
+    .link-focus {
+      fill: none;
+      stroke-linecap: round;
+      pointer-events: stroke;
+      filter: drop-shadow(0 0 8px rgba(34, 211, 238, .55));
+      vector-effect: non-scaling-stroke;
+    }
+    .link-focus.down {
+      stroke-dasharray: 8 6;
+      animation: linkAlarm 1.8s ease-in-out infinite;
+    }
+    @keyframes alarmPulse {
+      0%, 100% { opacity: .45; }
+      50% { opacity: 1; }
+    }
+    @keyframes linkAlarm {
+      0%, 100% { opacity: .55; }
+      50% { opacity: 1; }
+    }
+    .loading {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      background: rgba(8,17,31,.7);
+      z-index: 3;
+    }
+    .link-fs {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: none;
+      overflow: auto;
+      padding: 16px;
+      color: var(--text);
+      background: #0f172a;
+    }
+    .link-fs .port-table {
+      min-width: 1180px;
+    }
+    @media (max-width: 1024px) {
+      .shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: 56px minmax(0, 1fr) 280px;
+      }
+      .side {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+      .canvas-wrap {
+        min-width: 980px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="title">
+        <h1 id="page-title">架构拓扑视图</h1>
+        <span id="subtitle">分区聚合视图</span>
+      </div>
+      <div class="actions">
+        <label class="toggle"><input type="checkbox" id="toggle-meth" />显示管理接口</label>
+        <button id="reload">刷新</button>
+        <a href="/topology/modern.html">经典视图</a>
+        <a href="/topology/config.html">管理后台</a>
+      </div>
+    </header>
+    <main class="stage">
+      <div class="canvas-wrap">
+        <svg id="topology-svg" role="img" aria-label="架构拓扑图"></svg>
+        <div id="loading" class="loading">正在加载拓扑数据...</div>
+      </div>
+    </main>
+    <aside class="side">
+      <div class="metric-grid">
+        <button class="metric" data-metric="devices"><b id="metric-devices">-</b><span>设备</span></button>
+        <button class="metric" data-metric="links"><b id="metric-links">-</b><span>聚合链路</span></button>
+        <button class="metric" data-metric="down"><b id="metric-down">-</b><span>故障设备</span></button>
+        <button class="metric" data-metric="faults"><b id="metric-fault-links">-</b><span>故障链路</span></button>
+        <button class="metric" data-metric="meth"><b id="metric-meth">-</b><span>隐藏管理</span></button>
+      </div>
+      <div class="section">
+        <h2>链路图例</h2>
+        <div class="legend-row"><span>400G</span><i class="legend-line" style="background:#06b6d4"></i></div>
+        <div class="legend-row"><span>200G</span><i class="legend-line" style="background:#22c55e"></i></div>
+        <div class="legend-row"><span>100G</span><i class="legend-line" style="background:#fb923c"></i></div>
+        <div class="legend-row"><span>25G</span><i class="legend-line" style="background:#8b5cf6"></i></div>
+        <div class="legend-row"><span>10G</span><i class="legend-line" style="background:#64748b"></i></div>
+        <div class="legend-row"><span>DOWN</span><i class="legend-line" style="background:#ef4444;border-top:0"></i></div>
+      </div>
+      <div class="section">
+        <h2>详情</h2>
+        <div id="detail" class="detail">点击节点、链路或上方统计查看详情。</div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const svg = document.getElementById('topology-svg');
+    const loading = document.getElementById('loading');
+    const methToggle = document.getElementById('toggle-meth');
+    const state = {
+      config: {},
+      groupRules: { groups: [] },
+      architectureConfig: null,
+      topology: { nodes: [] },
+      links: [],
+      showMeth: false,
+      displayNodes: [],
+      displayLinks: [],
+      hiddenMethLinks: 0,
+      lastLoadedAt: null,
+      dataUpdatedAt: null
+    };
+
+    const DEFAULT_ARCHITECTURE_CONFIG = {
+      version: 1,
+      refresh_ms: 360000,
+      layout: { rows: [['default']] },
+      zones: [{ id: 'default', title: '默认分区', subtitle: '', column: 'left', minH: 260, default: true }],
+      clusters: [{ id: 'default', title: '默认集群', order: 1, default: true }],
+      roles: [{ id: 'device', title: '设备', order: 1, default: true }]
+    };
+    let zoneDefinitions = DEFAULT_ARCHITECTURE_CONFIG.zones.slice();
+    let activeZones = [];
+    let activeDetail = { type: 'overview' };
+    let selectedDisplayNodeId = '';
+    let focusLinkLayer = null;
+
+    function $(id) { return document.getElementById(id); }
+    function esc(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[ch]);
+    }
+
+    async function fetchJSON(path, fallback) {
+      try {
+        const sep = path.includes('?') ? '&' : '?';
+        const res = await fetch(path + sep + 't=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) return fallback;
+        return await res.json();
+      } catch (e) {
+        return fallback;
+      }
+    }
+
+    async function fetchJSONWithMeta(path, fallback) {
+      try {
+        const sep = path.includes('?') ? '&' : '?';
+        const res = await fetch(path + sep + 't=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) return { data: fallback, updatedAt: null };
+        const lastModified = res.headers.get('Last-Modified');
+        const updatedAt = lastModified ? new Date(lastModified) : null;
+        return { data: await res.json(), updatedAt: updatedAt && !Number.isNaN(updatedAt.getTime()) ? updatedAt : null };
+      } catch (e) {
+        return { data: fallback, updatedAt: null };
+      }
+    }
+
+    function formatDateTime(date) {
+      if (!date) return '';
+      const pad = value => String(value).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    function latestDate(...dates) {
+      return dates.filter(Boolean).sort((a, b) => b.getTime() - a.getTime())[0] || null;
+    }
+
+    function mergeProfile(base) {
+      const params = new URLSearchParams(location.search);
+      const profile = params.get('profile') || base.home_topology || 'main';
+      const prof = base.profiles && base.profiles[profile] ? base.profiles[profile] : null;
+      if (!prof) return base;
+      const out = JSON.parse(JSON.stringify(base));
+      ['title'].forEach(k => { if (typeof prof[k] !== 'undefined') out[k] = prof[k]; });
+      ['default_icons', 'types', 'aliases', 'display', 'visibility'].forEach(k => {
+        if (prof[k] && typeof prof[k] === 'object') out[k] = { ...(out[k] || {}), ...(prof[k] || {}) };
+      });
+      return out;
+    }
+
+    function normalizeName(value) {
+      return String(value || '').trim();
+    }
+
+    function isMethPortName(value) {
+      return /^meth/i.test(normalizeName(value));
+    }
+
+    function isMgmtNumberPortName(value) {
+      return /^mgmt [0-9]+$/i.test(normalizeName(value));
+    }
+
+    function isHiddenManagementPortName(value) {
+      return isMethPortName(value) || isMgmtNumberPortName(value);
+    }
+
+    function linkUsesMeth(link) {
+      return isHiddenManagementPortName(link.sourcePort) || isHiddenManagementPortName(link.targetPort);
+    }
+
+    function portKey(name) {
+      return normalizeName(name).toLowerCase().replace(/\s+/g, '');
+    }
+
+    function portIsUp(port) {
+      return !!port && (port.status === 1 || (Number(port.transmit) > 0 || Number(port.receive) > 0));
+    }
+
+    function formatBytes(value) {
+      const n = Number(value) || 0;
+      if (n >= 1024 ** 4) return (n / 1024 ** 4).toFixed(2) + ' TB';
+      if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + ' GB';
+      if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(2) + ' MB';
+      if (n >= 1024) return (n / 1024).toFixed(2) + ' KB';
+      return n.toFixed(0) + ' B';
+    }
+
+    function aliasFor(id) {
+      const aliases = state.config.aliases || {};
+      return aliases[id] || aliases['group:' + id] || id;
+    }
+
+    function compileRules() {
+      return (state.groupRules.groups || []).map(group => {
+        const includeRegex = (group.include_regex || []).map(rx => {
+          try { return new RegExp(rx); } catch (e) { return null; }
+        }).filter(Boolean);
+        const excludeRegex = (group.exclude_regex || []).map(rx => {
+          try { return new RegExp(rx); } catch (e) { return null; }
+        }).filter(Boolean);
+        return { ...group, includeRegex, excludeRegex };
+      });
+    }
+
+    function matchesGroup(group, node) {
+      const id = node.id;
+      const name = node.label || node.name || id;
+      const inIds = (group.include_ids || []).includes(id);
+      const inRegex = group.includeRegex.some(rx => rx.test(id) || rx.test(name));
+      const exIds = (group.exclude_ids || []).includes(id);
+      const exRegex = group.excludeRegex.some(rx => rx.test(id) || rx.test(name));
+      return (inIds || inRegex) && !(exIds || exRegex);
+    }
+
+    function toArray(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function compileRegexList(patterns) {
+      return toArray(patterns).map(pattern => {
+        try { return new RegExp(pattern, 'i'); } catch (e) { return null; }
+      }).filter(Boolean);
+    }
+
+    function normalizeArchitectureConfig(raw) {
+      const cfg = raw && Array.isArray(raw.zones) && raw.zones.length ? raw : DEFAULT_ARCHITECTURE_CONFIG;
+      const zones = toArray(cfg.zones).map((zone, idx) => ({
+        id: String(zone.id || `zone-${idx + 1}`),
+        title: zone.title || zone.name || zone.id || `分区 ${idx + 1}`,
+        subtitle: zone.subtitle || '',
+        column: zone.column || (idx % 2 === 0 ? 'left' : 'right'),
+        minH: Number(zone.minH) || 240,
+        default: zone.default === true,
+        include_ids: toArray(zone.include_ids),
+        exclude_ids: toArray(zone.exclude_ids),
+        includeRegex: compileRegexList(zone.include_regex),
+        excludeRegex: compileRegexList(zone.exclude_regex)
+      }));
+      const clusters = (toArray(cfg.clusters).length ? toArray(cfg.clusters) : DEFAULT_ARCHITECTURE_CONFIG.clusters).map((cluster, idx) => ({
+        id: String(cluster.id || `cluster-${idx + 1}`),
+        title: cluster.title || cluster.name || cluster.id || `集群 ${idx + 1}`,
+        order: Number(cluster.order) || idx + 1,
+        default: cluster.default === true,
+        include_ids: toArray(cluster.include_ids),
+        exclude_ids: toArray(cluster.exclude_ids),
+        includeRegex: compileRegexList(cluster.include_regex),
+        excludeRegex: compileRegexList(cluster.exclude_regex)
+      })).sort((a, b) => a.order - b.order);
+      const roles = (toArray(cfg.roles).length ? toArray(cfg.roles) : DEFAULT_ARCHITECTURE_CONFIG.roles).map((role, idx) => ({
+        id: String(role.id || `role-${idx + 1}`),
+        title: role.title || role.name || role.id || `角色 ${idx + 1}`,
+        order: Number(role.order) || idx + 1,
+        default: role.default === true,
+        include_ids: toArray(role.include_ids),
+        exclude_ids: toArray(role.exclude_ids),
+        includeRegex: compileRegexList(role.include_regex),
+        excludeRegex: compileRegexList(role.exclude_regex)
+      })).sort((a, b) => a.order - b.order);
+      const configuredRows = toArray(cfg.layout && cfg.layout.rows)
+        .map(row => toArray(row).map(String).filter(Boolean))
+        .filter(row => row.length);
+      const rows = configuredRows.length ? configuredRows : [zones.map(zone => zone.id)];
+      return {
+        ...cfg,
+        refresh_ms: Number(cfg.refresh_ms) || 360000,
+        layout: { ...(cfg.layout || {}), rows },
+        zones,
+        clusters,
+        roles
+      };
+    }
+
+    function matchesRule(rule, id, label) {
+      const text = `${id || ''} ${label || ''}`;
+      const inIds = toArray(rule.include_ids).includes(id);
+      const inRegex = (rule.includeRegex || []).some(rx => rx.test(text));
+      const exIds = toArray(rule.exclude_ids).includes(id);
+      const exRegex = (rule.excludeRegex || []).some(rx => rx.test(text));
+      const hasInclude = toArray(rule.include_ids).length > 0 || (rule.includeRegex || []).length > 0;
+      return (!hasInclude || inIds || inRegex) && !(exIds || exRegex);
+    }
+
+    function defaultRule(list) {
+      return list.find(item => item.default) || list[0] || null;
+    }
+
+    function classifyZone(id, label) {
+      const zones = (state.architectureConfig && state.architectureConfig.zones) || DEFAULT_ARCHITECTURE_CONFIG.zones;
+      const matched = zones.find(zone => !zone.default && matchesRule(zone, id, label));
+      const fallback = defaultRule(zones);
+      return (matched || fallback || {}).id || 'default';
+    }
+
+    function roleRank(id, label) {
+      const roles = (state.architectureConfig && state.architectureConfig.roles) || DEFAULT_ARCHITECTURE_CONFIG.roles;
+      const matched = roles.find(role => !role.default && matchesRule(role, id, label));
+      const fallback = defaultRule(roles);
+      return Number((matched || fallback || {}).order) || 1;
+    }
+
+    function roleLabel(role) {
+      const roles = (state.architectureConfig && state.architectureConfig.roles) || DEFAULT_ARCHITECTURE_CONFIG.roles;
+      return (roles.find(item => Number(item.order) === Number(role)) || {}).title || '设备';
+    }
+
+    function zoneTitle(zoneId) {
+      return (zoneDefinitions.find(zone => zone.id === zoneId) || {}).title || zoneId;
+    }
+
+    function clusterKey(id, label) {
+      const clusters = (state.architectureConfig && state.architectureConfig.clusters) || DEFAULT_ARCHITECTURE_CONFIG.clusters;
+      const matched = clusters.find(cluster => !cluster.default && matchesRule(cluster, id, label));
+      const fallback = defaultRule(clusters);
+      return (matched || fallback || {}).id || 'default';
+    }
+
+    function clusterTitle(cluster) {
+      const clusters = (state.architectureConfig && state.architectureConfig.clusters) || DEFAULT_ARCHITECTURE_CONFIG.clusters;
+      return (clusters.find(item => item.id === cluster) || {}).title || cluster;
+    }
+
+    function deviceHasDownPort(node) {
+      const ports = Array.isArray(node.ports) ? node.ports : [];
+      return ports.some(p => {
+        if (!state.showMeth && (isHiddenManagementPortName(p.ifName) || isHiddenManagementPortName(p.ifDescr) || isHiddenManagementPortName(p.ifAlias) || isHiddenManagementPortName(p.ifIndex))) return false;
+        return !portIsUp(p);
+      });
+    }
+
+    function buildPortIndex(nodes) {
+      const index = new Map();
+      nodes.forEach(node => {
+        const map = new Map();
+        (node.ports || []).forEach(port => {
+          [port.ifName, port.ifDescr, port.ifAlias, port.ifIndex].forEach(name => {
+            const key = portKey(name);
+            if (key) map.set(key, port);
+          });
+        });
+        index.set(node.id, map);
+      });
+      return index;
+    }
+
+    function findPortByName(nodeId, name) {
+      return state.portIndex && state.portIndex.get(nodeId) ? state.portIndex.get(nodeId).get(portKey(name)) : null;
+    }
+
+    function effectivePorts(node) {
+      const ports = Array.isArray(node && node.ports) ? node.ports : [];
+      if (state.showMeth) return ports;
+      return ports.filter(p => !(isHiddenManagementPortName(p.ifName) || isHiddenManagementPortName(p.ifDescr) || isHiddenManagementPortName(p.ifAlias) || isHiddenManagementPortName(p.ifIndex)));
+    }
+
+    function autoGroupKey(node) {
+      const label = aliasFor(node.id) || node.label || node.id;
+      const zone = classifyZone(node.id, label);
+      const role = roleRank(node.id, label);
+      const cluster = clusterKey(node.id, label);
+      return `${zone}|${cluster}|${role}`;
+    }
+
+    function buildDisplayModel() {
+      const cfg = state.config || {};
+      const visibility = cfg.visibility || {};
+      const deviceVisibility = visibility.devices || {};
+      const groupVisibility = visibility.groups || {};
+      const rules = compileRules();
+      const rawNodes = (state.topology.nodes || []).filter(n => n && n.id && deviceVisibility[n.id] !== false);
+      const nodeById = new Map(rawNodes.map(n => [n.id, n]));
+      const portIndex = buildPortIndex(rawNodes);
+      const groups = new Map();
+      const memberToDisplay = new Map();
+      const standalone = [];
+      const autoBuckets = new Map();
+
+      rawNodes.forEach(node => {
+        const rule = rules.find(g => matchesGroup(g, node));
+        if (rule && groupVisibility[rule.id] !== false) {
+          if (!groups.has(rule.id)) groups.set(rule.id, { id: 'group:' + rule.id, groupId: rule.id, label: aliasFor(rule.id), members: [], raw: [] });
+          const group = groups.get(rule.id);
+          group.members.push(node.id);
+          group.raw.push(node);
+          memberToDisplay.set(node.id, group.id);
+        } else {
+          const autoKey = autoGroupKey(node);
+          if (autoKey) {
+            if (!autoBuckets.has(autoKey)) autoBuckets.set(autoKey, []);
+            autoBuckets.get(autoKey).push(node);
+          } else {
+            standalone.push(node);
+          }
+        }
+      });
+
+      const displayNodes = [];
+      groups.forEach(group => {
+        const down = group.raw.some(node => Number(node.status) !== 0 || deviceHasDownPort(node));
+        const label = aliasFor(group.id) || aliasFor(group.groupId);
+        displayNodes.push({
+          id: group.id,
+          label,
+          zone: classifyZone(group.groupId, label),
+          cluster: clusterKey(group.groupId, label),
+          role: roleRank(group.groupId, label),
+          count: group.members.length,
+          down,
+          kind: 'group',
+          members: group.members
+        });
+      });
+
+      autoBuckets.forEach((bucket, key) => {
+        if (bucket.length <= 1) {
+          standalone.push(...bucket);
+          return;
+        }
+        const [zone, cluster, roleStr] = key.split('|');
+        const role = Number(roleStr) || 3;
+        const id = `auto:${key}`;
+        bucket.forEach(node => memberToDisplay.set(node.id, id));
+        const down = bucket.some(node => Number(node.status) !== 0 || deviceHasDownPort(node));
+        displayNodes.push({
+          id,
+          label: `${clusterTitle(cluster)} ${roleLabel(role)}`,
+          zone,
+          cluster,
+          role,
+          count: bucket.length,
+          down,
+          kind: 'group',
+          members: bucket.map(node => node.id)
+        });
+      });
+
+      standalone.forEach(node => {
+        memberToDisplay.set(node.id, node.id);
+        const label = aliasFor(node.id) || node.label || node.id;
+        displayNodes.push({
+          id: node.id,
+          label,
+          zone: classifyZone(node.id, label),
+          cluster: clusterKey(node.id, label),
+          role: roleRank(node.id, label),
+          count: 1,
+          down: Number(node.status) !== 0 || deviceHasDownPort(node),
+          kind: 'device',
+          node
+        });
+      });
+
+      const linkMap = new Map();
+      let hiddenMeth = 0;
+      (state.links || []).forEach(link => {
+        if (!link || !link.source || !link.target) return;
+        if (!state.showMeth && linkUsesMeth(link)) {
+          hiddenMeth++;
+          return;
+        }
+        const from = memberToDisplay.get(link.source) || link.source;
+        const to = memberToDisplay.get(link.target) || link.target;
+        if (!from || !to || from === to) return;
+        const key = from < to ? from + '---' + to : to + '---' + from;
+        if (!linkMap.has(key)) linkMap.set(key, { id: key, from: from < to ? from : to, to: from < to ? to : from, count: 0, down: false, speed: 0, raw: [] });
+        const rec = linkMap.get(key);
+        rec.count++;
+        rec.raw.push(link);
+        const srcPort = findPortByNameFromIndex(portIndex, link.source, link.sourcePort);
+        const tgtPort = findPortByNameFromIndex(portIndex, link.target, link.targetPort);
+        if (!portIsUp(srcPort) || !portIsUp(tgtPort)) rec.down = true;
+        rec.speed = Math.max(rec.speed, Number(srcPort && srcPort.speed_mbps) || 0, Number(tgtPort && tgtPort.speed_mbps) || 0);
+      });
+
+      const nodeIds = new Set(displayNodes.map(n => n.id));
+      const displayLinks = Array.from(linkMap.values()).filter(link => nodeIds.has(link.from) && nodeIds.has(link.to));
+      const displayNodeMap = new Map(displayNodes.map(n => [n.id, n]));
+      displayLinks.forEach(link => {
+        if (!link.down) return;
+        const from = displayNodeMap.get(link.from);
+        const to = displayNodeMap.get(link.to);
+        if (from) from.down = true;
+        if (to) to.down = true;
+      });
+      state.displayNodes = displayNodes;
+      state.displayLinks = displayLinks;
+      state.hiddenMethLinks = hiddenMeth;
+      state.nodeById = nodeById;
+      state.portIndex = portIndex;
+      state.displayNodeById = displayNodeMap;
+    }
+
+    function findPortByNameFromIndex(index, nodeId, name) {
+      return index && index.get(nodeId) ? index.get(nodeId).get(portKey(name)) : null;
+    }
+
+    function layoutNodes() {
+      const byZone = new Map(zoneDefinitions.map(zone => [zone.id, []]));
+      state.displayNodes.forEach(node => {
+        const targetZone = byZone.has(node.zone) ? node.zone : 'compute';
+        byZone.get(targetZone).push(node);
+      });
+
+      const layoutCfg = {
+        cardW: 142,
+        cardH: 106,
+        padX: 24,
+        headerH: 58,
+        padBottom: 24,
+        colGap: 18,
+        rowGap: 18,
+        roleGap: 30,
+        clusterGap: 18,
+        clusterLabelH: 26,
+        clusterPadX: 14,
+        clusterPadBottom: 14
+      };
+      const clusterOrder = ((state.architectureConfig && state.architectureConfig.clusters) || DEFAULT_ARCHITECTURE_CONFIG.clusters).map(cluster => cluster.id);
+      const roleOrder = ((state.architectureConfig && state.architectureConfig.roles) || DEFAULT_ARCHITECTURE_CONFIG.roles).map(role => Number(role.order) || 1);
+
+      function columnsFor(width) {
+        const usable = Math.max(layoutCfg.cardW, width - layoutCfg.padX * 2);
+        return Math.max(1, Math.floor((usable + layoutCfg.colGap) / (layoutCfg.cardW + layoutCfg.colGap)));
+      }
+
+      function roleRows(count, width) {
+        return Math.max(1, Math.ceil(count / columnsFor(width)));
+      }
+
+      function roleBlockHeight(count, width) {
+        const rows = roleRows(count, width);
+        return rows * layoutCfg.cardH + Math.max(0, rows - 1) * layoutCfg.rowGap;
+      }
+
+      function clusterSections(list) {
+        return clusterOrder.map(cluster => ({
+          id: cluster,
+          title: clusterTitle(cluster),
+          nodes: list.filter(node => (node.cluster || 'shared') === cluster)
+        })).filter(section => section.nodes.length > 0);
+      }
+
+      function clusterHeight(section, width) {
+        const innerWidth = Math.max(layoutCfg.cardW, width - layoutCfg.clusterPadX * 2);
+        const roles = roleOrder.filter(role => section.nodes.some(node => node.role === role));
+        const blocks = roles.map(role => roleBlockHeight(section.nodes.filter(node => node.role === role).length, innerWidth));
+        return layoutCfg.clusterLabelH + blocks.reduce((sum, h) => sum + h, 0) + Math.max(0, blocks.length - 1) * layoutCfg.roleGap + layoutCfg.clusterPadBottom;
+      }
+
+      function zoneHeight(def, list) {
+        const width = def.w || 530;
+        const sections = clusterSections(list);
+        const blocks = sections.map(section => clusterHeight(section, width));
+        const contentH = layoutCfg.headerH + blocks.reduce((sum, h) => sum + h, 0) + Math.max(0, blocks.length - 1) * layoutCfg.clusterGap + layoutCfg.padBottom;
+        return Math.max(def.minH, contentH);
+      }
+
+      const zoneById = new Map(zoneDefinitions.map(def => [def.id, def]));
+      const hasNodes = id => (byZone.get(id) || []).length > 0;
+      activeZones = [];
+      let y = 34;
+      const configuredRows = ((state.architectureConfig && state.architectureConfig.layout && state.architectureConfig.layout.rows) || [zoneDefinitions.map(zone => zone.id)]);
+      configuredRows.forEach(pair => {
+        const defs = pair.filter(hasNodes).map(id => zoneById.get(id));
+        if (!defs.length) return;
+        const fullWidth = defs.length === 1;
+        const rowDefs = defs.map(def => ({
+          ...def,
+          x: fullWidth ? 38 : (def.column === 'left' ? 38 : 606),
+          w: fullWidth ? 1098 : 530
+        }));
+        const rowH = Math.max(...rowDefs.map(def => zoneHeight(def, byZone.get(def.id))));
+        rowDefs.forEach(def => {
+          activeZones.push({
+            ...def,
+            y,
+            h: rowH
+          });
+        });
+        y += rowH + 22;
+      });
+
+      activeZones.forEach(zone => {
+        const list = byZone.get(zone.id) || [];
+        const sections = clusterSections(list);
+        let cursorY = zone.y + layoutCfg.headerH;
+        zone.sections = [];
+        sections.forEach(section => {
+          const sectionH = clusterHeight(section, zone.w);
+          const sectionBox = { ...section, x: zone.x + 12, y: cursorY, w: zone.w - 24, h: sectionH };
+          zone.sections.push(sectionBox);
+          const innerW = sectionBox.w - layoutCfg.clusterPadX * 2;
+          const cols = columnsFor(innerW);
+          let nodeY = sectionBox.y + layoutCfg.clusterLabelH;
+          roleOrder.filter(role => section.nodes.some(node => node.role === role)).forEach(role => {
+            const roleNodes = section.nodes.filter(node => node.role === role).sort((a, b) => String(a.label).localeCompare(String(b.label)));
+            const rows = Math.ceil(roleNodes.length / cols);
+            for (let row = 0; row < rows; row++) {
+              const rowNodes = roleNodes.slice(row * cols, row * cols + cols);
+              const rowW = rowNodes.length * layoutCfg.cardW + Math.max(0, rowNodes.length - 1) * layoutCfg.colGap;
+              const startX = sectionBox.x + Math.max(layoutCfg.clusterPadX, (sectionBox.w - rowW) / 2);
+              rowNodes.forEach((node, idx) => {
+                node.w = layoutCfg.cardW;
+                node.h = layoutCfg.cardH;
+                node.x = startX + idx * (layoutCfg.cardW + layoutCfg.colGap);
+                node.y = nodeY;
+                node.cx = node.x + layoutCfg.cardW / 2;
+                node.cy = node.y + layoutCfg.cardH / 2;
+                node.iconCx = node.x + layoutCfg.cardW / 2;
+                node.iconCy = node.y + 38;
+              });
+              nodeY += layoutCfg.cardH + layoutCfg.rowGap;
+            }
+            nodeY += layoutCfg.roleGap - layoutCfg.rowGap;
+          });
+          cursorY += sectionH + layoutCfg.clusterGap;
+        });
+      });
+    }
+
+    function colorBySpeed(speed, down) {
+      if (down) return '#ef4444';
+      if (speed >= 400) return '#06b6d4';
+      if (speed >= 200) return '#22c55e';
+      if (speed >= 100) return '#fb923c';
+      if (speed >= 25) return '#8b5cf6';
+      if (speed >= 10) return '#64748b';
+      return '#94a3b8';
+    }
+
+    function svgEl(tag, attrs) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      Object.entries(attrs || {}).forEach(([key, value]) => el.setAttribute(key, value));
+      return el;
+    }
+
+    function truncate(text, max) {
+      const s = String(text || '');
+      return s.length > max ? s.slice(0, max - 1) + '...' : s;
+    }
+
+    function appendSwitchIcon(group, node) {
+      const x = (node.w - 54) / 2;
+      const y = 10;
+      if (node.kind === 'group') {
+        group.appendChild(svgEl('rect', {
+          x: x + 5,
+          y: y + 6,
+          width: 48,
+          height: 38,
+          rx: 8,
+          fill: node.down ? '#3a1820' : '#0b4260',
+          stroke: node.down ? '#ef4444' : '#0369a1',
+          'stroke-width': 1
+        }));
+      }
+      const bodyFill = node.down ? '#991b1b' : (node.role === 1 ? '#0284c7' : '#2563eb');
+      const body = svgEl('rect', {
+        class: 'switch-icon-body',
+        x,
+        y,
+        width: 48,
+        height: 38,
+        rx: 8,
+        fill: bodyFill
+      });
+      group.appendChild(body);
+      const centerX = x + 24;
+      const centerY = y + 19;
+      group.appendChild(svgEl('path', { class: 'switch-icon-mark', d: `M${centerX},${y + 7}v24M${x + 12},${centerY}h24` }));
+      group.appendChild(svgEl('path', { class: 'switch-icon-mark', d: `M${centerX},${y + 7}l-5,5M${centerX},${y + 7}l5,5M${centerX},${y + 31}l-5,-5M${centerX},${y + 31}l5,-5M${x + 12},${centerY}l5,-5M${x + 12},${centerY}l5,5M${x + 36},${centerY}l-5,-5M${x + 36},${centerY}l-5,5` }));
+    }
+
+    function linkEndpoint(from, to) {
+      const fx = from.iconCx || from.cx;
+      const fy = from.iconCy || from.cy;
+      const tx = to.iconCx || to.cx;
+      const ty = to.iconCy || to.cy;
+      const dx = tx - fx;
+      const dy = ty - fy;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      const iconRadius = 27;
+      return {
+        x: fx + dx / len * iconRadius,
+        y: fy + dy / len * iconRadius
+      };
+    }
+
+    function linePath(a, b) {
+      const start = linkEndpoint(a, b);
+      const end = linkEndpoint(b, a);
+      const ax = start.x;
+      const ay = start.y;
+      const bx = end.x;
+      const by = end.y;
+      const dx = Math.abs(ax - bx);
+      const dy = Math.abs(ay - by);
+      if (dy < 90) {
+        const midX = (ax + bx) / 2;
+        return `M${ax},${ay} C${midX},${ay} ${midX},${by} ${bx},${by}`;
+      }
+      if (dx < 70) {
+        const midY = (ay + by) / 2;
+        return `M${ax},${ay} C${ax},${midY} ${bx},${midY} ${bx},${by}`;
+      }
+      const midY = (ay + by) / 2;
+      return `M${ax},${ay} C${ax},${midY} ${bx},${midY} ${bx},${by}`;
+    }
+
+    function render() {
+      buildDisplayModel();
+      layoutNodes();
+      svg.innerHTML = '';
+      const width = Math.max(1174, svg.clientWidth || 1174);
+      const contentHeight = Math.max(760, ...activeZones.map(zone => zone.y + zone.h + 36));
+      const height = Math.max(contentHeight, svg.clientHeight || 760);
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.setAttribute('height', String(height));
+      svg.style.height = height + 'px';
+
+      const zoneLayer = svgEl('g');
+      const linkLayer = svgEl('g');
+      const nodeLayer = svgEl('g');
+      focusLinkLayer = svgEl('g', { class: 'focus-link-layer' });
+      svg.appendChild(zoneLayer);
+      svg.appendChild(linkLayer);
+      svg.appendChild(nodeLayer);
+      svg.appendChild(focusLinkLayer);
+
+      activeZones.forEach(zone => {
+        zoneLayer.appendChild(svgEl('rect', { class: 'zone-bg', x: zone.x, y: zone.y, width: zone.w, height: zone.h, rx: 8 }));
+        const title = svgEl('text', { class: 'zone-label', x: zone.x + 18, y: zone.y + 26 });
+        title.textContent = zone.title;
+        zoneLayer.appendChild(title);
+        const sub = svgEl('text', { class: 'zone-sub', x: zone.x + 18, y: zone.y + 44 });
+        sub.textContent = zone.subtitle;
+        zoneLayer.appendChild(sub);
+        (zone.sections || []).forEach(section => {
+          zoneLayer.appendChild(svgEl('rect', { class: 'cluster-bg', x: section.x, y: section.y, width: section.w, height: section.h, rx: 7 }));
+          const label = svgEl('text', { class: `cluster-label ${section.id}`, x: section.x + 12, y: section.y + 17 });
+          label.textContent = section.title;
+          zoneLayer.appendChild(label);
+        });
+      });
+
+      const nodeByDisplayId = new Map(state.displayNodes.map(node => [node.id, node]));
+      state.displayLinks.forEach(link => {
+        const a = nodeByDisplayId.get(link.from);
+        const b = nodeByDisplayId.get(link.to);
+        if (!a || !b) return;
+        const path = svgEl('path', {
+          class: 'link' + (link.down ? ' down' : ''),
+          'data-link-id': link.id,
+          d: linePath(a, b),
+          stroke: colorBySpeed(link.speed, link.down),
+          'stroke-width': Math.min(8, 1.4 + Math.log2(link.count + 1))
+        });
+        const underlay = svgEl('path', {
+          class: 'link-underlay',
+          'data-link-id': link.id,
+          d: path.getAttribute('d'),
+          'stroke-width': Math.min(12, 5.2 + Math.log2(link.count + 1))
+        });
+        path.addEventListener('click', ev => {
+          ev.stopPropagation();
+          showLinkDetail(link, a, b);
+        });
+        linkLayer.appendChild(underlay);
+        linkLayer.appendChild(path);
+      });
+
+      state.displayNodes.forEach(node => {
+        const group = svgEl('g', { class: `node-card ${node.kind}${node.down ? ' down' : ''}`, 'data-node-id': node.id, transform: `translate(${node.x},${node.y})` });
+        group.addEventListener('click', ev => {
+          ev.stopPropagation();
+          showNodeDetail(node);
+        });
+        group.appendChild(svgEl('rect', { class: 'node-rect', width: node.w, height: node.h, rx: 7 }));
+        appendSwitchIcon(group, node);
+        group.appendChild(svgEl('circle', { class: 'node-dot' + (node.down ? ' alarm' : ''), cx: node.w - 13, cy: 14, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
+        const title = svgEl('text', { class: 'node-title', x: node.w / 2, y: 66 });
+        title.textContent = truncate(node.label, 14);
+        group.appendChild(title);
+        const meta = svgEl('text', { class: 'node-meta', x: node.w / 2, y: 87 });
+        meta.textContent = node.kind === 'group' ? `${roleLabel(node.role)} / ${node.count} 台` : `${roleLabel(node.role)} / ${node.down ? 'DOWN' : 'UP'}`;
+        group.appendChild(meta);
+        nodeLayer.appendChild(group);
+      });
+
+      updateMetrics();
+      refreshActiveDetail();
+      applySelectionHighlight();
+      if (window.anime) {
+        anime({ targets: '.node-card', opacity: [0, 1], delay: anime.stagger(12), duration: 420, easing: 'easeOutQuad' });
+        anime({ targets: '.link', strokeDashoffset: [18, 0], duration: 600, easing: 'easeOutQuad' });
+      }
+    }
+
+    function updateMetrics() {
+      const rawNodes = state.topology.nodes || [];
+      $('metric-devices').textContent = rawNodes.length;
+      $('metric-links').textContent = state.displayLinks.length;
+      $('metric-down').textContent = rawNodes.filter(n => Number(n.status) !== 0 || deviceHasDownPort(n)).length;
+      $('metric-fault-links').textContent = state.displayLinks.filter(link => link.down).length;
+      $('metric-meth').textContent = state.showMeth ? 0 : state.hiddenMethLinks || 0;
+      const loadedAt = state.dataUpdatedAt
+        ? ` / 更新时间 ${formatDateTime(state.dataUpdatedAt)}`
+        : '';
+      $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${state.links.length} 条原始链路${loadedAt}`;
+    }
+
+    function connectedSelection(id) {
+      const links = state.displayLinks.filter(link => link.from === id || link.to === id);
+      const nodes = new Set([id]);
+      links.forEach(link => {
+        nodes.add(link.from);
+        nodes.add(link.to);
+      });
+      return { links, nodes };
+    }
+
+    function applySelectionHighlight() {
+      if (!focusLinkLayer) return;
+      focusLinkLayer.innerHTML = '';
+      const selected = selectedDisplayNodeId;
+      const nodeEls = Array.from(svg.querySelectorAll('.node-card'));
+      const linkEls = Array.from(svg.querySelectorAll('.link,.link-underlay'));
+      nodeEls.forEach(el => el.classList.remove('selected', 'connected', 'dimmed'));
+      linkEls.forEach(el => el.classList.remove('connected', 'dimmed'));
+      if (!selected || !(state.displayNodeById && state.displayNodeById.has(selected))) return;
+      const conn = connectedSelection(selected);
+      nodeEls.forEach(el => {
+        const id = el.getAttribute('data-node-id');
+        if (id === selected) el.classList.add('selected');
+        else if (conn.nodes.has(id)) el.classList.add('connected');
+        else el.classList.add('dimmed');
+      });
+      linkEls.forEach(el => {
+        const id = el.getAttribute('data-link-id');
+        if (conn.links.some(link => link.id === id)) el.classList.add('connected');
+        else el.classList.add('dimmed');
+      });
+      conn.links.forEach(link => {
+        const a = state.displayNodeById.get(link.from);
+        const b = state.displayNodeById.get(link.to);
+        if (!a || !b) return;
+        const focus = svgEl('path', {
+          class: 'link-focus' + (link.down ? ' down' : ''),
+          d: linePath(a, b),
+          stroke: colorBySpeed(link.speed, link.down),
+          'stroke-width': Math.min(10, 3.6 + Math.log2(link.count + 1)),
+          'data-link-id': link.id
+        });
+        focus.addEventListener('click', ev => {
+          ev.stopPropagation();
+          showLinkDetail(link, a, b);
+        });
+        focusLinkLayer.appendChild(focus);
+      });
+    }
+
+    function setActiveMetric(name) {
+      document.querySelectorAll('.metric').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.metric === name);
+      });
+    }
+
+    function statusBadge(down) {
+      return `<span class="badge ${down ? 'bad' : 'ok'}">${down ? 'DOWN' : 'UP'}</span>`;
+    }
+
+    function renderNodeList(title, nodes) {
+      setActiveMetric(title.metric || '');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
+      activeDetail = { type: 'metric', metric: title.metric || '' };
+      const rows = nodes.map(node => {
+        const id = esc(node.id);
+        const label = esc(node.label || node.id);
+        const meta = esc(`${zoneTitle(node.zone)} / ${clusterTitle(node.cluster || 'shared')} / ${roleLabel(node.role)}${node.kind === 'group' ? ' / ' + node.count + ' 台' : ''}`);
+        return `<div class="list-row" data-node-id="${id}"><div><strong>${label}</strong><small>${meta}</small></div>${statusBadge(node.down)}</div>`;
+      }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc(title.text)}</b><span class="badge">${nodes.length}</span></div><div class="list">${rows || '<div class="info-item">暂无数据</div>'}</div>`;
+      $('detail').querySelectorAll('[data-node-id]').forEach(row => {
+        row.addEventListener('click', () => {
+          const node = state.displayNodeById.get(row.dataset.nodeId);
+          if (node) showNodeDetail(node);
+        });
+      });
+    }
+
+    function rawNodeView(node) {
+      const label = aliasFor(node.id) || node.label || node.id;
+      return {
+        id: node.id,
+        label,
+        zone: classifyZone(node.id, label),
+        role: roleRank(node.id, label),
+        cluster: clusterKey(node.id, label),
+        down: Number(node.status) !== 0 || deviceHasDownPort(node)
+      };
+    }
+
+    function renderRawDeviceList(title, rawNodes) {
+      setActiveMetric(title.metric || '');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
+      activeDetail = { type: 'metric', metric: title.metric || '' };
+      const views = rawNodes.map(rawNodeView).sort((a, b) => a.zone.localeCompare(b.zone) || a.role - b.role || a.label.localeCompare(b.label));
+      const rows = views.map(node => {
+        const meta = `${zoneTitle(node.zone)} / ${clusterTitle(node.cluster || 'shared')} / ${roleLabel(node.role)} / ${node.id}`;
+        return `<div class="list-row" data-raw-node-id="${esc(node.id)}"><div><strong>${esc(node.label)}</strong><small>${esc(meta)}</small></div>${statusBadge(node.down)}</div>`;
+      }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc(title.text)}</b><span class="badge">${views.length}</span></div><div class="list">${rows || '<div class="info-item">暂无数据</div>'}</div>`;
+      $('detail').querySelectorAll('[data-raw-node-id]').forEach(row => {
+        row.addEventListener('click', () => showRawDeviceDetail(row.dataset.rawNodeId));
+      });
+    }
+
+    function renderLinkList() {
+      setActiveMetric('links');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
+      activeDetail = { type: 'metric', metric: 'links' };
+      const rows = state.displayLinks
+        .slice()
+        .sort((a, b) => Number(b.down) - Number(a.down) || b.count - a.count)
+        .map(link => {
+          const from = state.displayNodeById.get(link.from);
+          const to = state.displayNodeById.get(link.to);
+          return `<div class="list-row" data-link-id="${esc(link.id)}"><div><strong>${esc((from && from.label) || link.from)} - ${esc((to && to.label) || link.to)}</strong><small>${link.count} 条 / 最大 ${link.speed || '-'}G</small></div>${statusBadge(link.down)}</div>`;
+        }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>聚合链路</b><span class="badge">${state.displayLinks.length}</span></div><div class="list">${rows || '<div class="info-item">暂无数据</div>'}</div>`;
+      $('detail').querySelectorAll('[data-link-id]').forEach(row => {
+        row.addEventListener('click', () => {
+          const link = state.displayLinks.find(item => item.id === row.dataset.linkId);
+          if (!link) return;
+          showLinkDetail(link, state.displayNodeById.get(link.from), state.displayNodeById.get(link.to));
+        });
+      });
+    }
+
+    function renderMethDetail() {
+      setActiveMetric('meth');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
+      activeDetail = { type: 'metric', metric: 'meth' };
+      const methLinks = state.showMeth ? [] : (state.links || []).filter(link => linkUsesMeth(link));
+      const rows = methLinks.map(link => {
+        return `<tr><td>${esc(link.source)}</td><td>${esc(link.sourcePort || '-')}</td><td>${esc(link.target)}</td><td>${esc(link.targetPort || '-')}</td></tr>`;
+      }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>隐藏管理链路</b><span class="badge">${state.showMeth ? 0 : state.hiddenMethLinks || 0}</span></div>
+        ${state.showMeth ? '<div class="info-item">当前已开启显示管理接口，暂无隐藏项。</div>' : ''}
+        <div class="detail-table-wrap"><table class="port-table" style="min-width:620px"><thead><tr><th>本端设备</th><th>本端接口</th><th>对端设备</th><th>对端接口</th></tr></thead><tbody>${rows || '<tr><td colspan="4">暂无隐藏管理链路</td></tr>'}</tbody></table></div>`;
+    }
+
+    function showNodeDetail(node) {
+      setActiveMetric('');
+      selectedDisplayNodeId = node.id;
+      applySelectionHighlight();
+      activeDetail = { type: 'node', id: node.id };
+      if (node.kind === 'group') {
+        const memberRows = node.members.map(id => {
+          const raw = state.nodeById.get(id);
+          const down = raw ? Number(raw.status) !== 0 || deviceHasDownPort(raw) : false;
+          return `<div class="list-row" data-raw-node-id="${esc(id)}"><div><strong>${esc(aliasFor(id) || id)}</strong><small>${esc(id)}</small></div>${statusBadge(down)}</div>`;
+        }).join('');
+        $('detail').innerHTML = `<div class="detail-title"><b>${esc(node.label)}</b>${statusBadge(node.down)}</div>
+          <div class="info-grid">
+            <div class="info-item"><span>类型</span><b>设备组</b></div>
+            <div class="info-item"><span>分区</span><b>${esc(zoneTitle(node.zone))}</b></div>
+            <div class="info-item"><span>集群</span><b>${esc(clusterTitle(node.cluster || 'shared'))}</b></div>
+            <div class="info-item"><span>角色</span><b>${esc(roleLabel(node.role))}</b></div>
+            <div class="info-item"><span>成员</span><b>${node.count} 台</b></div>
+          </div>
+          <div class="list">${memberRows || '<div class="info-item">暂无成员</div>'}</div>`;
+        $('detail').querySelectorAll('[data-raw-node-id]').forEach(row => {
+          row.addEventListener('click', () => showRawDeviceDetail(row.dataset.rawNodeId));
+        });
+        return;
+      }
+      showRawDeviceDetail(node.id);
+    }
+
+    function showRawDeviceDetail(id) {
+      setActiveMetric('');
+      activeDetail = { type: 'raw-device', id };
+      const raw = state.nodeById.get(id) || {};
+      const label = aliasFor(id) || raw.label || id;
+      const ports = effectivePorts(raw);
+      const downPorts = ports.filter(p => !portIsUp(p));
+      const hiddenMethPorts = Array.isArray(raw.ports) ? raw.ports.length - ports.length : 0;
+      const tableHtml = buildDevicePortTable(ports);
+      const sideTableHtml = buildDevicePortTable(ports.slice().sort((a, b) => Number(!portIsUp(b)) - Number(!portIsUp(a))).slice(0, 40));
+      const tableTitle = `设备端口 - ${label}`;
+      const hiddenNotice = ports.length > 40 ? `<span class="badge warn">侧栏仅显示前 40 条</span>` : '';
+      const down = Number(raw.status) !== 0 || deviceHasDownPort(raw);
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc(label)}</b>${statusBadge(down)}</div>
+        <div class="info-grid">
+          <div class="info-item"><span>ID</span><b>${esc(id)}</b></div>
+          <div class="info-item"><span>IP</span><b>${esc(raw.ip || '-')}</b></div>
+          <div class="info-item"><span>端口</span><b>${ports.length}</b></div>
+          <div class="info-item"><span>异常端口</span><b>${downPorts.length}</b></div>
+        </div>
+        <div class="detail-actions">${hiddenMethPorts > 0 ? `<span class="badge warn">已隐藏管理接口 ${hiddenMethPorts}</span>` : ''}${hiddenNotice}<button id="device-expand-toggle" class="detail-btn">展示全部列</button></div>
+        <div class="detail-table-wrap">${sideTableHtml}</div>`;
+      const btn = $('device-expand-toggle');
+      if (btn) btn.addEventListener('click', () => openDetailFullscreen(tableTitle, tableHtml));
+    }
+
+    function buildDevicePortTable(ports) {
+      const portRows = ports.map(port => {
+        const up = portIsUp(port);
+        return `<tr class="${up ? '' : 'alarm-row'}"><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="${up ? 'port-up' : 'port-down'}">${up ? 'UP' : 'DOWN'}</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td></tr>`;
+      }).join('');
+      return `<table class="port-table" style="min-width:760px"><thead><tr><th>接口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr></thead><tbody>${portRows || '<tr><td colspan="6">暂无端口数据</td></tr>'}</tbody></table>`;
+    }
+
+    function buildLinkTable(link) {
+      const rows = link.raw.map(item => {
+        const srcNode = state.nodeById.get(item.source);
+        const tgtNode = state.nodeById.get(item.target);
+        const srcPort = findPortByName(item.source, item.sourcePort);
+        const tgtPort = findPortByName(item.target, item.targetPort);
+        const srcUp = portIsUp(srcPort);
+        const tgtUp = portIsUp(tgtPort);
+        const anyDown = !srcUp || !tgtUp;
+        return `<tr class="${anyDown ? 'alarm-row' : ''}">
+          <td>${esc(srcNode ? (aliasFor(srcNode.id) || srcNode.label || srcNode.id) : item.source)}</td>
+          <td>${esc(item.sourcePort || '-')}</td>
+          <td class="${srcUp ? 'port-up' : 'port-down'}">${srcUp ? 'UP' : 'DOWN'}</td>
+          <td>${esc(srcPort ? (srcPort.speed_mbps || 0) : '-')}</td>
+          <td>${esc(srcPort ? formatBytes(srcPort.transmit || 0) : '-')}</td>
+          <td>${esc(srcPort ? formatBytes(srcPort.receive || 0) : '-')}</td>
+          <td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>
+          <td>${esc(tgtNode ? (aliasFor(tgtNode.id) || tgtNode.label || tgtNode.id) : item.target)}</td>
+          <td>${esc(item.targetPort || '-')}</td>
+          <td class="${tgtUp ? 'port-up' : 'port-down'}">${tgtUp ? 'UP' : 'DOWN'}</td>
+          <td>${esc(tgtPort ? (tgtPort.speed_mbps || 0) : '-')}</td>
+          <td>${esc(tgtPort ? formatBytes(tgtPort.transmit || 0) : '-')}</td>
+          <td>${esc(tgtPort ? formatBytes(tgtPort.receive || 0) : '-')}</td>
+          <td>${tgtPort ? Math.max(tgtPort.transmit_percent || 0, tgtPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>
+        </tr>`;
+      }).join('');
+      return `<table class="port-table">
+        <thead><tr>
+          <th>本端设备</th><th>本端接口</th><th>本端接口状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th>
+          <th>对端设备</th><th>对端接口</th><th>对端接口状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="14">无互联端口信息</td></tr>'}</tbody>
+      </table>`;
+    }
+
+    function showLinkDetail(link, fromNode, toNode) {
+      setActiveMetric('');
+      activeDetail = { type: 'link', id: link.id };
+      const tableHtml = buildLinkTable(link);
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc((fromNode && fromNode.label) || link.from)} - ${esc((toNode && toNode.label) || link.to)}</b>${statusBadge(link.down)}</div>
+        <div class="info-grid">
+          <div class="info-item"><span>聚合链路</span><b>${link.count}</b></div>
+          <div class="info-item"><span>最大速率</span><b>${link.speed || '-'}G</b></div>
+          <div class="info-item"><span>本端</span><b>${esc((fromNode && fromNode.label) || link.from)}</b></div>
+          <div class="info-item"><span>对端</span><b>${esc((toNode && toNode.label) || link.to)}</b></div>
+        </div>
+        <div class="detail-actions"><button id="link-expand-toggle" class="detail-btn">展示全部列</button></div>
+        <div class="detail-table-wrap">${tableHtml}</div>`;
+      const btn = $('link-expand-toggle');
+      if (btn) btn.addEventListener('click', () => openLinkFullscreen(tableHtml));
+    }
+
+    function openLinkFullscreen(contentHtml) {
+      openDetailFullscreen('链路信息', contentHtml);
+    }
+
+    function openDetailFullscreen(title, contentHtml) {
+      let fs = $('link-fs');
+      if (!fs) {
+        fs = document.createElement('div');
+        fs.id = 'link-fs';
+        fs.className = 'link-fs';
+        document.body.appendChild(fs);
+      }
+      fs.innerHTML = `<div class="detail-actions"><button id="link-fs-toggle" class="detail-btn">最小化</button></div>
+        <div class="detail-title"><b>${esc(title)}</b></div>
+        <div class="detail-table-wrap">${contentHtml}</div>`;
+      fs.style.display = 'block';
+      const btn = $('link-fs-toggle');
+      if (btn) btn.addEventListener('click', closeLinkFullscreen);
+    }
+
+    function closeLinkFullscreen() {
+      const fs = $('link-fs');
+      if (fs) fs.style.display = 'none';
+    }
+
+    function rawLinkDown(link) {
+      if (!link) return false;
+      const srcPort = findPortByName(link.source, link.sourcePort);
+      const tgtPort = findPortByName(link.target, link.targetPort);
+      return !portIsUp(srcPort) || !portIsUp(tgtPort);
+    }
+
+    function renderFaultDetail() {
+      setActiveMetric('faults');
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
+      activeDetail = { type: 'metric', metric: 'faults' };
+      const downDevices = (state.topology.nodes || []).filter(node => Number(node.status) !== 0 || deviceHasDownPort(node));
+      const downLinks = state.displayLinks.filter(link => link.down);
+      const downPortRows = [];
+      (state.topology.nodes || []).forEach(node => {
+        effectivePorts(node).forEach(port => {
+          if (!portIsUp(port)) {
+            downPortRows.push(`<tr class="alarm-row"><td>${esc(aliasFor(node.id) || node.label || node.id)}</td><td>${esc(node.id)}</td><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="port-down">DOWN</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td></tr>`);
+          }
+        });
+      });
+      const deviceRows = downDevices.map(node => {
+        const view = rawNodeView(node);
+        return `<div class="list-row" data-raw-node-id="${esc(node.id)}"><div><strong>${esc(view.label)}</strong><small>${esc(`${zoneTitle(view.zone)} / ${roleLabel(view.role)} / ${node.id}`)}</small></div>${statusBadge(true)}</div>`;
+      }).join('');
+      const linkRows = downLinks.map(link => {
+        const from = state.displayNodeById.get(link.from);
+        const to = state.displayNodeById.get(link.to);
+        return `<div class="list-row" data-link-id="${esc(link.id)}"><div><strong>${esc((from && from.label) || link.from)} - ${esc((to && to.label) || link.to)}</strong><small>${link.count} 条 / 最大 ${link.speed || '-'}G</small></div>${statusBadge(true)}</div>`;
+      }).join('');
+      const fullTable = `<table class="port-table" style="min-width:980px"><thead><tr><th>设备</th><th>ID</th><th>接口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr></thead><tbody>${downPortRows.join('') || '<tr><td colspan="8">暂无 DOWN 端口</td></tr>'}</tbody></table>`;
+      $('detail').innerHTML = `<div class="detail-title"><b>故障详情</b><span class="badge bad">${downLinks.length} 条链路</span></div>
+        <div class="info-grid">
+          <div class="info-item"><span>故障设备</span><b>${downDevices.length}</b></div>
+          <div class="info-item"><span>故障聚合链路</span><b>${downLinks.length}</b></div>
+          <div class="info-item"><span>DOWN 端口</span><b>${downPortRows.length}</b></div>
+          <div class="info-item"><span>隐藏管理链路</span><b>${state.showMeth ? 0 : state.hiddenMethLinks || 0}</b></div>
+        </div>
+        <div class="detail-actions"><button id="fault-expand-toggle" class="detail-btn">展示全部列</button></div>
+        <div class="section"><h2>故障设备</h2><div class="list">${deviceRows || '<div class="info-item">暂无故障设备</div>'}</div></div>
+        <div class="section"><h2>故障链路</h2><div class="list">${linkRows || '<div class="info-item">暂无故障链路</div>'}</div></div>
+        <div class="section"><h2>DOWN 端口</h2><div class="detail-table-wrap">${fullTable}</div></div>`;
+      const btn = $('fault-expand-toggle');
+      if (btn) btn.addEventListener('click', () => openDetailFullscreen('故障端口详情', fullTable));
+      $('detail').querySelectorAll('[data-raw-node-id]').forEach(row => {
+        row.addEventListener('click', () => showRawDeviceDetail(row.dataset.rawNodeId));
+      });
+      $('detail').querySelectorAll('[data-link-id]').forEach(row => {
+        row.addEventListener('click', () => {
+          const link = state.displayLinks.find(item => item.id === row.dataset.linkId);
+          if (link) showLinkDetail(link, state.displayNodeById.get(link.from), state.displayNodeById.get(link.to));
+        });
+      });
+    }
+
+    function refreshActiveDetail() {
+      if (!activeDetail || activeDetail.type === 'overview') return;
+      if (activeDetail.type === 'node') {
+        const node = state.displayNodeById && state.displayNodeById.get(activeDetail.id);
+        if (node) showNodeDetail(node);
+      } else if (activeDetail.type === 'raw-device') {
+        showRawDeviceDetail(activeDetail.id);
+      } else if (activeDetail.type === 'link') {
+        const link = state.displayLinks.find(item => item.id === activeDetail.id);
+        if (link) showLinkDetail(link, state.displayNodeById.get(link.from), state.displayNodeById.get(link.to));
+      } else if (activeDetail.type === 'metric') {
+        showMetric(activeDetail.metric);
+      }
+    }
+
+    function showMetric(metric) {
+      if (metric === 'devices') {
+        renderRawDeviceList({ text: '设备', metric }, state.topology.nodes || []);
+      } else if (metric === 'links') {
+        renderLinkList();
+      } else if (metric === 'down') {
+        renderRawDeviceList({ text: '故障设备', metric }, (state.topology.nodes || []).filter(node => Number(node.status) !== 0 || deviceHasDownPort(node)));
+      } else if (metric === 'faults') {
+        renderFaultDetail();
+      } else if (metric === 'meth') {
+        renderMethDetail();
+      }
+    }
+
+    async function loadAll() {
+      loading.style.display = 'grid';
+      const cfgRaw = await fetchJSON('/topology/api/config/topology_config', await fetchJSON('config/topology_config.json', {}));
+      state.config = mergeProfile(cfgRaw || {});
+      state.groupRules = await fetchJSON('/topology/api/config/group_rules', await fetchJSON('config/group_rules.json', { groups: [] }));
+      const archRaw = await fetchJSON('/topology/api/config/architecture', await fetchJSON('config/architecture_config.json', DEFAULT_ARCHITECTURE_CONFIG));
+      state.architectureConfig = normalizeArchitectureConfig(archRaw);
+      zoneDefinitions = state.architectureConfig.zones;
+      const topologyResult = await fetchJSONWithMeta('topology.json', { nodes: [] });
+      const linksResult = await fetchJSONWithMeta('links.json', []);
+      state.topology = topologyResult.data;
+      state.links = linksResult.data;
+      state.lastLoadedAt = new Date();
+      state.dataUpdatedAt = latestDate(topologyResult.updatedAt, linksResult.updatedAt) || state.lastLoadedAt;
+      state.showMeth = methToggle.checked || ((state.config.display || {}).showMethInterfaces === true);
+      methToggle.checked = state.showMeth;
+      $('page-title').textContent = (state.config.title || '架构拓扑视图') + ' - 架构视图';
+      render();
+      scheduleAutoRefresh();
+      loading.style.display = 'none';
+    }
+
+    function scheduleAutoRefresh() {
+      window.clearInterval(window.__modernRefreshTimer);
+      const intervalMs = Math.max(60000, Number(state.architectureConfig && state.architectureConfig.refresh_ms) || 360000);
+      window.__modernRefreshTimer = window.setInterval(() => {
+        if (document.hidden) return;
+        loadAll();
+      }, intervalMs);
+    }
+
+    methToggle.addEventListener('change', () => {
+      state.showMeth = methToggle.checked;
+      render();
+    });
+    $('reload').addEventListener('click', loadAll);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) loadAll();
+    });
+    document.querySelectorAll('.metric').forEach(btn => {
+      btn.addEventListener('click', () => showMetric(btn.dataset.metric));
+    });
+    svg.addEventListener('click', () => {
+      activeDetail = { type: 'overview' };
+      selectedDisplayNodeId = '';
+      applySelectionHighlight();
+      setActiveMetric('');
+      $('detail').textContent = '点击节点、链路或上方统计查看详情。';
+    });
+    window.addEventListener('resize', () => { window.clearTimeout(window.__modernResize); window.__modernResize = window.setTimeout(render, 120); });
+    loadAll();
+  </script>
+</body>
+</html>

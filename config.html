@@ -27,6 +27,7 @@
       .field { display:flex; flex-direction:column; }
       .field label { font-size:13px; color:#333; margin-bottom:6px; }
       .field input { padding:8px; border:1px solid #ddd; border-radius:6px; }
+      textarea.config-json { width:100%; min-height:360px; padding:10px; border:1px solid #ddd; border-radius:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; line-height:1.45; box-sizing:border-box; }
       #topo-editor { height: 520px; border:1px solid #eee; border-radius:8px; }
       .panel { border-left:1px solid #eee; padding-left:12px; }
     </style>
@@ -35,6 +36,7 @@
     <header>
       <div class="title">配置中心</div>
       <div class="actions">
+        <a href="/topology/" id="go-modern">架构视图</a>
         <a href="#" id="go-front-edit">前台编辑</a>
         <a href="/topology/" id="logout-link">退出登录</a>
       </div>
@@ -71,6 +73,7 @@
           </div>
           <div class="grid">
             <div class="field"><label>拓扑标题</label><input id="topo-title" placeholder="例如：智元集群拓扑监控" /></div>
+            <div class="field"><label>显示管理接口（MEth/Mgmt）</label><input type="checkbox" id="display-show-meth" /></div>
             <div class="field"><label>交换机图标</label><input id="icon-device" placeholder="icons/sw.png" /></div>
             <div class="field"><label>交换机故障图标</label><input id="icon-device-bad" placeholder="icons/sw-bad.png" /></div>
             <div class="field"><label>交换机组图标</label><input id="icon-group" placeholder="icons/sigle-sw.png" /></div>
@@ -158,6 +161,29 @@
             </div>
           </div>
           <div class="msg" id="msg-groups"></div>
+        </div>
+      </div>
+
+      <div class="section" id="sec-architecture">
+        <h3>
+          <span>架构视图配置（architecture_config.json）</span>
+          <span>
+            <button class="btn" id="save-architecture">保存</button>
+            <button class="btn secondary" id="backup-architecture">备份</button>
+            <button class="btn secondary" id="toggle-hist-architecture">历史配置</button>
+            <button class="btn secondary" id="refresh-architecture">刷新</button>
+          </span>
+        </h3>
+        <div class="body">
+          <p class="muted">用于配置架构视图的分区、集群、角色、刷新周期与布局。include/exclude 支持 ID 列表与正则。</p>
+          <textarea id="architecture-json" class="config-json"></textarea>
+          <div class="row">
+            <div class="col">
+              <div class="muted">历史配置</div>
+              <div class="list" id="hist-architecture" style="display:none;"></div>
+            </div>
+          </div>
+          <div class="msg" id="msg-architecture"></div>
         </div>
       </div>
     </div>
@@ -429,6 +455,45 @@
         catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
       }
 
+      async function refreshArchitectureConfig() {
+        const msg = document.getElementById('msg-architecture');
+        const ta = document.getElementById('architecture-json');
+        msg.textContent = ''; msg.className = 'msg';
+        try {
+          const resp = await fetch('/topology/api/config/architecture', { headers: { ...auth } });
+          if (!resp.ok) {
+            msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载架构配置' : ('无法加载架构配置（HTTP ' + resp.status + '）');
+            msg.className = 'msg';
+            return;
+          }
+          const obj = await resp.json().catch(()=>({}));
+          ta.value = JSON.stringify(obj, null, 2);
+        } catch (e) {
+          msg.textContent = '加载架构配置失败：' + (e && e.message ? e.message : String(e));
+          msg.className = 'msg';
+        }
+      }
+
+      async function saveArchitectureConfig() {
+        const msg = document.getElementById('msg-architecture');
+        const ta = document.getElementById('architecture-json');
+        msg.textContent = ''; msg.className = 'msg';
+        let obj;
+        try { obj = JSON.parse(ta.value); }
+        catch (e) { msg.textContent = 'JSON 格式错误：' + e.message; return; }
+        obj.version = obj.version || 1;
+        obj.updatedAt = new Date().toISOString();
+        try {
+          await putConfig('architecture', obj);
+          msg.textContent = '保存成功';
+          msg.className = 'msg ok';
+          await refreshArchitectureConfig();
+        } catch (e) {
+          msg.textContent = e.message;
+          msg.className = 'msg';
+        }
+      }
+
       // 全局配置：标题 + 图标
       async function refreshGlobalConfig() {
         const msg = document.getElementById('msg-global');
@@ -452,6 +517,11 @@
           const prof = (cfg && cfg.profiles && cfg.profiles[activeProfile]) ? cfg.profiles[activeProfile] : cfg;
           const titleEl = document.getElementById('topo-title');
           if (typeof prof.title !== 'undefined') titleEl.value = String(prof.title);
+          const display = activeProfile === 'main'
+            ? ((cfg && cfg.display) || {})
+            : { ...((cfg && cfg.display) || {}), ...((prof && prof.display) || {}) };
+          const methEl = document.getElementById('display-show-meth');
+          if (methEl) methEl.checked = display.showMethInterfaces === true;
           const d = (prof && prof.default_icons) || {};
           const setIf = (elId, v, fallback) => { const el = document.getElementById(elId); el.value = typeof v !== 'undefined' ? v : (el.value || fallback); };
           setIf('icon-device', d.device, 'icons/sw.png');
@@ -478,6 +548,9 @@
         cfg.profiles = cfg.profiles || {};
         const target = activeProfile === 'main' ? cfg : (cfg.profiles[activeProfile] = cfg.profiles[activeProfile] || {});
         target.title = document.getElementById('topo-title').value.trim();
+        target.display = target.display || {};
+        const methEl = document.getElementById('display-show-meth');
+        target.display.showMethInterfaces = methEl ? !!methEl.checked : false;
         target.default_icons = target.default_icons || {};
         target.default_icons.device = document.getElementById('icon-device').value.trim();
         target.default_icons.device_bad = document.getElementById('icon-device-bad').value.trim();
@@ -505,7 +578,7 @@
         const cfg = await fetchJSON('/topology/api/config/topology_config');
         cfg.profiles = cfg.profiles || {};
         if (cfg.profiles[name]) { msg.textContent = '该拓扑已存在'; return; }
-        cfg.profiles[name] = { title: name, default_icons: {}, types: {}, aliases: {}, visibility: { devices: {}, groups: {} } };
+        cfg.profiles[name] = { title: name, default_icons: {}, types: {}, aliases: {}, visibility: { devices: {}, groups: {} }, display: { showMethInterfaces: false } };
         try { await putConfig('topology_config', cfg); document.getElementById('config-profile').value = name; await refreshGlobalConfig(); msg.textContent = '已新增拓扑'; msg.className = 'msg ok'; }
         catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
         try {
@@ -857,10 +930,14 @@
       document.getElementById('toggle-hist-groups').addEventListener('click', () => toggleHistory('group_rules', 'hist-groups'));
       document.getElementById('refresh-groups').addEventListener('click', () => refreshGroupsUI());
       document.getElementById('new-group').addEventListener('click', () => openGroupModal(null));
+      document.getElementById('save-architecture').addEventListener('click', () => saveArchitectureConfig());
+      document.getElementById('backup-architecture').addEventListener('click', () => backupConfig('architecture', 'msg-architecture', 'hist-architecture'));
+      document.getElementById('toggle-hist-architecture').addEventListener('click', () => toggleHistory('architecture', 'hist-architecture'));
+      document.getElementById('refresh-architecture').addEventListener('click', () => refreshArchitectureConfig());
       // 未登录禁用保存按钮
       const setSavesEnabled = (enabled) => {
         // 允许“保存位置”在未登录时也可用（写入本地缓存兜底）
-        const ids = ['go-front-edit','save-global-config','backup-global-config','toggle-hist-global','backup-positions','toggle-hist-topology','fullscreen-topology','save-node-prop','save-node-type','save-node-visible','save-groups','delete-groups','backup-groups','toggle-hist-groups'];
+        const ids = ['go-front-edit','save-global-config','backup-global-config','toggle-hist-global','backup-positions','toggle-hist-topology','fullscreen-topology','save-node-prop','save-node-type','save-node-visible','save-groups','delete-groups','backup-groups','toggle-hist-groups','save-architecture','backup-architecture','toggle-hist-architecture'];
         ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !enabled; });
       };
       setSavesEnabled(!!token);
@@ -871,6 +948,7 @@
         await refreshGlobalConfig();
         await refreshTopology();
         await refreshGroupsUI();
+        await refreshArchitectureConfig();
       })();
     </script>
     

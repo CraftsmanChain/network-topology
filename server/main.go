@@ -79,6 +79,8 @@ func main() {
 	if webRoot == "" {
 		webRoot = ".."
 	}
+	dataRoot := getDataRoot(webRoot)
+	configDir := getConfigDir()
 	// serve all files under web root (../) under /topology/web
 	topo.Static("/web", webRoot)
 	// serve icons under /topology/icons to match front-end relative paths
@@ -95,17 +97,24 @@ func main() {
 	// alias login.html and config.html for convenience
 	topo.GET("/login.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "login.html")) })
 	topo.GET("/config.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "config.html")) })
-	// default root serves topology.html for convenience
-	topo.GET("/", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
-	// also serve /topology.html directly
-	topo.GET("/topology.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
+	// architecture view is the default entry; legacy modern URLs keep the classic view.
+	topo.GET("/", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
+	topo.GET("/topology.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
+	topo.GET("/classic.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/topology-modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
 
-	// expose config directory under /topology/config so frontends can fetch JSON directly
-	topo.Static("/config", filepath.Join(webRoot, "config"))
+	// expose active config directory under /topology/config so frontends can fetch JSON directly
+	topo.Static("/config", configDir)
 
 	// provide links.json and prometheus.json if present; fallback to empty JSON
 	topo.GET("/links.json", func(c *gin.Context) {
-		p := filepath.Join(webRoot, "links.json")
+		p := filepath.Join(dataRoot, "links.json")
+		if _, err := os.Stat(p); err == nil {
+			c.File(p)
+			return
+		}
+		p = filepath.Join(webRoot, "links.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
 			return
@@ -113,7 +122,12 @@ func main() {
 		c.Data(http.StatusOK, "application/json", []byte("{}"))
 	})
 	topo.GET("/prometheus.json", func(c *gin.Context) {
-		p := filepath.Join(webRoot, "prometheus.json")
+		p := filepath.Join(dataRoot, "prometheus.json")
+		if _, err := os.Stat(p); err == nil {
+			c.File(p)
+			return
+		}
+		p = filepath.Join(webRoot, "prometheus.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
 			return
@@ -124,6 +138,8 @@ func main() {
 	// devices.json: serve if present at root or under config; fallback to empty list
 	topo.GET("/devices.json", func(c *gin.Context) {
 		candidates := []string{
+			filepath.Join(dataRoot, "devices.json"),
+			filepath.Join(dataRoot, "config", "devices.json"),
 			filepath.Join(webRoot, "devices.json"),
 			filepath.Join(webRoot, "config", "devices.json"),
 		}
@@ -138,7 +154,12 @@ func main() {
 
 	// topology aliases for legacy paths
 	topo.GET("/topology_config.json", func(c *gin.Context) {
-		p := filepath.Join(webRoot, "config", "topology_config.json")
+		p := filepath.Join(configDir, "topology_config.json")
+		if _, err := os.Stat(p); err == nil {
+			c.File(p)
+			return
+		}
+		p = filepath.Join(webRoot, "config", "topology_config.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
 			return
@@ -146,13 +167,23 @@ func main() {
 		c.Data(http.StatusOK, "application/json", []byte("{}"))
 	})
 	topo.GET("/topology.config.json", func(c *gin.Context) {
-		p := filepath.Join(webRoot, "config", "topology.config.json")
+		p := filepath.Join(configDir, "topology.config.json")
+		if _, err := os.Stat(p); err == nil {
+			c.File(p)
+			return
+		}
+		p = filepath.Join(webRoot, "config", "topology.config.json")
 		if _, err := os.Stat(p); err == nil {
 			c.File(p)
 			return
 		}
 		// fallback to topology_config.json
-		p2 := filepath.Join(webRoot, "config", "topology_config.json")
+		p2 := filepath.Join(configDir, "topology_config.json")
+		if _, err := os.Stat(p2); err == nil {
+			c.File(p2)
+			return
+		}
+		p2 = filepath.Join(webRoot, "config", "topology_config.json")
 		if _, err := os.Stat(p2); err == nil {
 			c.File(p2)
 			return
@@ -162,6 +193,8 @@ func main() {
 	topo.GET("/topology.json", func(c *gin.Context) {
 		// Prefer real topology data if present; fallback to debug; then empty graph
 		candidates := []string{
+			filepath.Join(dataRoot, "topology.json"),
+			filepath.Join(dataRoot, "topology-debug.json"),
 			filepath.Join(webRoot, "topology.json"),
 			filepath.Join(webRoot, "topology-debug.json"),
 		}
@@ -289,6 +322,7 @@ var allowedNames = map[string]string{
 	"topology_config": "topology_config.json",
 	"positions":       "positions.json",
 	"link_overrides":  "link_overrides.json",
+	"architecture":    "architecture_config.json",
 }
 
 func getConfigDir() string {
@@ -298,6 +332,14 @@ func getConfigDir() string {
 		dir = filepath.Join("..", "config")
 	}
 	return dir
+}
+
+func getDataRoot(webRoot string) string {
+	root := os.Getenv("DATA_ROOT")
+	if root == "" {
+		return webRoot
+	}
+	return root
 }
 
 func resolveConfigPath(name string) (string, error) {
