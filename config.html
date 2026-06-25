@@ -27,6 +27,7 @@
       .field { display:flex; flex-direction:column; }
       .field label { font-size:13px; color:#333; margin-bottom:6px; }
       .field input { padding:8px; border:1px solid #ddd; border-radius:6px; }
+      textarea.config-json { width:100%; min-height:360px; padding:10px; border:1px solid #ddd; border-radius:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; line-height:1.45; box-sizing:border-box; }
       #topo-editor { height: 520px; border:1px solid #eee; border-radius:8px; }
       .panel { border-left:1px solid #eee; padding-left:12px; }
     </style>
@@ -35,7 +36,7 @@
     <header>
       <div class="title">配置中心</div>
       <div class="actions">
-        <a href="/topology/modern.html" id="go-modern">架构视图</a>
+        <a href="/topology/" id="go-modern">架构视图</a>
         <a href="#" id="go-front-edit">前台编辑</a>
         <a href="/topology/" id="logout-link">退出登录</a>
       </div>
@@ -160,6 +161,29 @@
             </div>
           </div>
           <div class="msg" id="msg-groups"></div>
+        </div>
+      </div>
+
+      <div class="section" id="sec-architecture">
+        <h3>
+          <span>架构视图配置（architecture_config.json）</span>
+          <span>
+            <button class="btn" id="save-architecture">保存</button>
+            <button class="btn secondary" id="backup-architecture">备份</button>
+            <button class="btn secondary" id="toggle-hist-architecture">历史配置</button>
+            <button class="btn secondary" id="refresh-architecture">刷新</button>
+          </span>
+        </h3>
+        <div class="body">
+          <p class="muted">用于配置架构视图的分区、集群、角色、刷新周期与布局。include/exclude 支持 ID 列表与正则。</p>
+          <textarea id="architecture-json" class="config-json"></textarea>
+          <div class="row">
+            <div class="col">
+              <div class="muted">历史配置</div>
+              <div class="list" id="hist-architecture" style="display:none;"></div>
+            </div>
+          </div>
+          <div class="msg" id="msg-architecture"></div>
         </div>
       </div>
     </div>
@@ -429,6 +453,45 @@
         const obj = { ...groupRules, version: groupRules.version || 1, updatedAt: new Date().toISOString() };
         try { await putConfig('group_rules', obj); msg.textContent = '保存成功'; msg.className = 'msg ok'; await refreshGroupsUI(); }
         catch (e) { msg.textContent = e.message; msg.className = 'msg'; }
+      }
+
+      async function refreshArchitectureConfig() {
+        const msg = document.getElementById('msg-architecture');
+        const ta = document.getElementById('architecture-json');
+        msg.textContent = ''; msg.className = 'msg';
+        try {
+          const resp = await fetch('/topology/api/config/architecture', { headers: { ...auth } });
+          if (!resp.ok) {
+            msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载架构配置' : ('无法加载架构配置（HTTP ' + resp.status + '）');
+            msg.className = 'msg';
+            return;
+          }
+          const obj = await resp.json().catch(()=>({}));
+          ta.value = JSON.stringify(obj, null, 2);
+        } catch (e) {
+          msg.textContent = '加载架构配置失败：' + (e && e.message ? e.message : String(e));
+          msg.className = 'msg';
+        }
+      }
+
+      async function saveArchitectureConfig() {
+        const msg = document.getElementById('msg-architecture');
+        const ta = document.getElementById('architecture-json');
+        msg.textContent = ''; msg.className = 'msg';
+        let obj;
+        try { obj = JSON.parse(ta.value); }
+        catch (e) { msg.textContent = 'JSON 格式错误：' + e.message; return; }
+        obj.version = obj.version || 1;
+        obj.updatedAt = new Date().toISOString();
+        try {
+          await putConfig('architecture', obj);
+          msg.textContent = '保存成功';
+          msg.className = 'msg ok';
+          await refreshArchitectureConfig();
+        } catch (e) {
+          msg.textContent = e.message;
+          msg.className = 'msg';
+        }
       }
 
       // 全局配置：标题 + 图标
@@ -867,10 +930,14 @@
       document.getElementById('toggle-hist-groups').addEventListener('click', () => toggleHistory('group_rules', 'hist-groups'));
       document.getElementById('refresh-groups').addEventListener('click', () => refreshGroupsUI());
       document.getElementById('new-group').addEventListener('click', () => openGroupModal(null));
+      document.getElementById('save-architecture').addEventListener('click', () => saveArchitectureConfig());
+      document.getElementById('backup-architecture').addEventListener('click', () => backupConfig('architecture', 'msg-architecture', 'hist-architecture'));
+      document.getElementById('toggle-hist-architecture').addEventListener('click', () => toggleHistory('architecture', 'hist-architecture'));
+      document.getElementById('refresh-architecture').addEventListener('click', () => refreshArchitectureConfig());
       // 未登录禁用保存按钮
       const setSavesEnabled = (enabled) => {
         // 允许“保存位置”在未登录时也可用（写入本地缓存兜底）
-        const ids = ['go-front-edit','save-global-config','backup-global-config','toggle-hist-global','backup-positions','toggle-hist-topology','fullscreen-topology','save-node-prop','save-node-type','save-node-visible','save-groups','delete-groups','backup-groups','toggle-hist-groups'];
+        const ids = ['go-front-edit','save-global-config','backup-global-config','toggle-hist-global','backup-positions','toggle-hist-topology','fullscreen-topology','save-node-prop','save-node-type','save-node-visible','save-groups','delete-groups','backup-groups','toggle-hist-groups','save-architecture','backup-architecture','toggle-hist-architecture'];
         ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !enabled; });
       };
       setSavesEnabled(!!token);
@@ -881,6 +948,7 @@
         await refreshGlobalConfig();
         await refreshTopology();
         await refreshGroupsUI();
+        await refreshArchitectureConfig();
       })();
     </script>
     

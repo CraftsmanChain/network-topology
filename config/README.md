@@ -3,6 +3,7 @@
 该目录存放管理员模式可编辑的 JSON 配置文件示例：
 
 - group_rules.json：分组规则源（include/exclude 支持正则与 ID 列表）。
+- architecture_config.json：架构视图分区、集群、角色、布局行与刷新周期配置。
 - topology.config.json：全局样式与布局配置（背景色、侧栏模块、刷新策略等）。
 - positions.json：节点与组的坐标、锁定与尺寸（用于拖拽保存布局）。
 - link_overrides.json：连线黑白名单（覆盖动态连线的显隐）。
@@ -20,6 +21,10 @@
 - group_rules.json：
   - groups[].include_regex/ids、exclude_regex/ids 组合使用；冲突设备需在 UI 中提示与处理。
   - style_override.forcedStatus 可为 "UP"/"DOWN"/null；颜色与 icon_url 可按需覆盖。
+- architecture_config.json：
+  - zones[] 配置分区，clusters[] 配置集群，roles[] 配置汇聚/接入等角色。
+  - include_ids/exclude_ids 精确匹配设备或组 ID，include_regex/exclude_regex 正则匹配 ID 与显示名。
+  - layout.rows 控制架构视图分区排布；refresh_ms 控制前端自动刷新周期。
 - topology.config.json：
   - backgroundColor 与现有页面风格一致，示例为 #1f2637。
   - dynamic_links.debounce_ms 与 grace_ms 控制连线的防抖与宽限期。

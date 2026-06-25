@@ -97,12 +97,12 @@ func main() {
 	// alias login.html and config.html for convenience
 	topo.GET("/login.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "login.html")) })
 	topo.GET("/config.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "config.html")) })
-	// default root serves topology.html for convenience
-	topo.GET("/", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
-	// also serve /topology.html directly
-	topo.GET("/topology.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
-	topo.GET("/modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
-	topo.GET("/topology-modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
+	// architecture view is the default entry; legacy modern URLs keep the classic view.
+	topo.GET("/", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
+	topo.GET("/topology.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
+	topo.GET("/classic.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/topology-modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
 
 	// expose active config directory under /topology/config so frontends can fetch JSON directly
 	topo.Static("/config", configDir)
@@ -322,6 +322,7 @@ var allowedNames = map[string]string{
 	"topology_config": "topology_config.json",
 	"positions":       "positions.json",
 	"link_overrides":  "link_overrides.json",
+	"architecture":    "architecture_config.json",
 }
 
 func getConfigDir() string {
