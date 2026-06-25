@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strings"
 	"time"
@@ -117,12 +118,35 @@ func getHost(m map[string]string) string {
 	return ""
 }
 
-// queryPrometheus 查询 Prometheus 指标
+func defaultPromURLs() []string {
+	if v := strings.TrimSpace(os.Getenv("PROM_QUERY_URL")); v != "" {
+		return []string{v}
+	}
+	if v := strings.TrimSpace(os.Getenv("PROM_URL")); v != "" {
+		return []string{v}
+	}
+	return []string{
+		"http://10.27.3.68:8481/select/0/prometheus",
+		"http://10.102.10.6:9090",
+	}
+}
+
+func buildQueryURL(promURL, metric string) string {
+	promURL = strings.TrimRight(strings.TrimSpace(promURL), "/")
+	if !strings.HasSuffix(promURL, "/api/v1/query") {
+		promURL += "/api/v1/query"
+	}
+	values := neturl.Values{}
+	values.Set("query", metric)
+	return promURL + "?" + values.Encode()
+}
+
+// queryPrometheus 查询 Prometheus/VictoriaMetrics 指标
 func queryPrometheus(promURL, metric string) (PromResult, error) {
-	url := fmt.Sprintf("%s/api/v1/query?query=%s", promURL, metric)
-	debugPrintf("Querying: %s\n", url)
+	queryURL := buildQueryURL(promURL, metric)
+	debugPrintf("Querying: %s\n", queryURL)
 	client := http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Get(queryURL)
 	if err != nil {
 		debugPrintf("HTTP error: %v\n", err)
 		return PromResult{}, err
@@ -141,11 +165,20 @@ func queryPrometheus(promURL, metric string) (PromResult, error) {
 	return result, err
 }
 
-func main() {
-	promURL := "http://10.102.10.6:9090"
+func choosePromURL() string {
+	for _, candidate := range defaultPromURLs() {
+		if upData, err := queryPrometheus(candidate, "up"); err == nil && len(upData.Data.Result) > 0 {
+			fmt.Printf("使用监控查询地址: %s\n", strings.TrimRight(candidate, "/"))
+			return strings.TrimRight(candidate, "/")
+		}
+	}
+	return ""
+}
 
-	if upData, err := queryPrometheus(promURL, "up"); err != nil || len(upData.Data.Result) == 0 {
-		fmt.Println("Prometheus 当前不可达或无 up 指标，未更新 links-raw.json 与 links.json")
+func main() {
+	promURL := choosePromURL()
+	if promURL == "" {
+		fmt.Println("Prometheus/VictoriaMetrics 当前不可达或无 up 指标，未更新 links-raw.json 与 links.json")
 		return
 	}
 

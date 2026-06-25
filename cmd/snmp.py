@@ -8,26 +8,63 @@
 """
 
 import json
+import os
 import requests
 import time
 import sys
 from typing import Dict, List, Tuple
 
-PROM_URL = "http://10.102.10.6:9090/api/v1/query"
+DEFAULT_PROM_URLS = [
+    "http://10.27.3.68:8481/select/0/prometheus/api/v1/query",
+    "http://10.102.10.6:9090/api/v1/query",
+]
+ACTIVE_PROM_URL = ""
+
+
+def candidate_prom_urls():
+    for key in ("PROM_QUERY_URL", "PROM_URL"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            if not value.rstrip("/").endswith("/api/v1/query"):
+                value = value.rstrip("/") + "/api/v1/query"
+            return [value]
+    return DEFAULT_PROM_URLS
+
 
 def query_prometheus(query: str):
-    try:
-        r = requests.get(PROM_URL, params={"query": query}, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("data", {}).get("result", [])
-    except Exception as e:
-        print(f"[ERROR] Prometheus 查询失败: {e}")
-        return []
+    urls = [ACTIVE_PROM_URL] if ACTIVE_PROM_URL else candidate_prom_urls()
+    for prom_url in urls:
+        if not prom_url:
+            continue
+        try:
+            r = requests.get(prom_url, params={"query": query}, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            return data.get("data", {}).get("result", [])
+        except Exception as e:
+            print(f"[ERROR] Prometheus/VictoriaMetrics 查询失败 {prom_url}: {e}")
+    return []
+
+
+def choose_prom_url() -> str:
+    global ACTIVE_PROM_URL
+    for prom_url in candidate_prom_urls():
+        try:
+            r = requests.get(prom_url, params={"query": "up"}, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            if data.get("data", {}).get("result", []):
+                ACTIVE_PROM_URL = prom_url
+                print(f"[INFO] 使用监控查询地址: {prom_url}")
+                return prom_url
+        except Exception as e:
+            print(f"[ERROR] Prometheus/VictoriaMetrics 预检失败 {prom_url}: {e}")
+    ACTIVE_PROM_URL = ""
+    return ""
 
 
 def prometheus_available() -> bool:
-    return bool(query_prometheus("up"))
+    return bool(choose_prom_url())
 
 
 # 从设备名称查询对应的IP地址
