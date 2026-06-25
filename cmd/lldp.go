@@ -144,6 +144,11 @@ func queryPrometheus(promURL, metric string) (PromResult, error) {
 func main() {
 	promURL := "http://10.102.10.6:9090"
 
+	if upData, err := queryPrometheus(promURL, "up"); err != nil || len(upData.Data.Result) == 0 {
+		fmt.Println("Prometheus 当前不可达或无 up 指标，未更新 links-raw.json 与 links.json")
+		return
+	}
+
 	locData, _ := queryPrometheus(promURL, "lldpLocPortId")
 	remData, _ := queryPrometheus(promURL, "lldpRemPortId")
 	sysData, _ := queryPrometheus(promURL, "lldpRemSysName")

@@ -11,6 +11,7 @@ import json
 import requests
 import time
 import sys
+from typing import Dict, List, Tuple
 
 PROM_URL = "http://10.102.10.6:9090/api/v1/query"
 
@@ -23,6 +24,11 @@ def query_prometheus(query: str):
     except Exception as e:
         print(f"[ERROR] Prometheus 查询失败: {e}")
         return []
+
+
+def prometheus_available() -> bool:
+    return bool(query_prometheus("up"))
+
 
 # 从设备名称查询对应的IP地址
 def get_device_ip_from_name(device_name):
@@ -80,10 +86,6 @@ def load_devices_from_json():
     except Exception as e:
         print(f"[ERROR] 读取 devices.json 失败: {e}")
         sys.exit(1)
-
-# 加载设备列表
-DEVICES = load_devices_from_json()
-
 
 def get_device_status(instance):
     """如果设备完全无数据则 status=1"""
@@ -160,10 +162,111 @@ def get_interface_data(instance):
     return list(ports.values())
 
 
-def main():
-    result = {"nodes": []}
+def normalize_port_name(name: str) -> str:
+    name = (name or "").strip()
+    if name.lower() == "eth0":
+        return "Ethernet0"
+    return name
 
-    for name, ip in DEVICES.items():
+
+def parse_link_alias(alias: str) -> Tuple[str, str]:
+    """
+    解析端口别名中的链路信息。
+    典型格式：Link-to-<对端设备>_<对端端口>
+    设备名可能包含下划线，因此从右侧切分最后一个下划线。
+    """
+    alias = (alias or "").strip()
+    prefix = "Link-to-"
+    if not alias.startswith(prefix):
+        return "", ""
+
+    payload = alias[len(prefix):].strip()
+    if "_" not in payload:
+        return "", ""
+
+    target, target_port = payload.rsplit("_", 1)
+    return target.strip(), normalize_port_name(target_port)
+
+
+def link_key(source: str, source_port: str, target: str, target_port: str) -> str:
+    left = f"{source}\x00{source_port}"
+    right = f"{target}\x00{target_port}"
+    if left <= right:
+        return f"{left}\x01{right}"
+    return f"{right}\x01{left}"
+
+
+def build_links_from_topology(topology: Dict) -> Tuple[List[Dict], List[Dict]]:
+    nodes = topology.get("nodes", []) if isinstance(topology, dict) else []
+    known_devices = {node.get("id") for node in nodes if node.get("id")}
+    raw_links = []
+    filtered_links = []
+    seen = set()
+
+    for node in nodes:
+        source = node.get("id", "")
+        if not source:
+            continue
+        for port in node.get("ports", []):
+            target, target_port = parse_link_alias(port.get("ifAlias", ""))
+            if not target or not target_port:
+                continue
+
+            source_port = normalize_port_name(port.get("ifDescr") or port.get("ifName") or f"if{port.get('ifIndex', '')}")
+            if not source_port:
+                continue
+
+            key = link_key(source, source_port, target, target_port)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            link = {
+                "source": source,
+                "sourcePort": source_port,
+                "target": target,
+                "targetPort": target_port
+            }
+            raw_links.append(link)
+            if target in known_devices:
+                filtered_links.append(link)
+
+    return raw_links, filtered_links
+
+
+def write_links_from_topology(topology: Dict) -> bool:
+    raw_links, filtered_links = build_links_from_topology(topology)
+    if not raw_links:
+        print("[WARNING] 未从 topology.json 的端口别名解析到链路，未更新 links-raw.json 与 links.json")
+        return False
+
+    with open("links-raw.json", "w", encoding="utf-8") as f:
+        json.dump(raw_links, f, indent=2, ensure_ascii=False)
+
+    if filtered_links:
+        with open("links.json", "w", encoding="utf-8") as f:
+            json.dump(filtered_links, f, indent=2, ensure_ascii=False)
+    else:
+        print("[WARNING] 端口别名链路过滤后为空，未更新 links.json")
+
+    print(f"[INFO] 已基于 topology.json 端口别名更新链路: raw={len(raw_links)}, filtered={len(filtered_links)}")
+    return True
+
+
+def load_topology_json(path="topology.json") -> Dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def main():
+    if not prometheus_available():
+        print("[WARNING] Prometheus 当前不可达或无 up 指标，未更新 topology.json、links-raw.json 与 links.json")
+        return
+
+    result = {"nodes": []}
+    devices = load_devices_from_json()
+
+    for name, ip in devices.items():
         if not ip:
             print(f"[WARNING] 跳过设备 {name}，未找到IP地址")
             continue
@@ -195,13 +298,21 @@ def main():
 
         result["nodes"].append(node)
 
+    if not result["nodes"]:
+        print("[WARNING] 未采集到任何设备端口数据，未更新 topology.json、links-raw.json 与 links.json")
+        return
+
     with open("topology.json", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
 
     print("[INFO] 数据已写入 topology.json")
+    write_links_from_topology(result)
 
 
 if __name__ == "__main__":
     start = time.time()
-    main()
+    if "--links-from-topology" in sys.argv:
+        write_links_from_topology(load_topology_json())
+    else:
+        main()
     print(f"[INFO] 执行耗时: {time.time() - start:.2f}s")

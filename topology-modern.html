@@ -544,7 +544,8 @@
       displayNodes: [],
       displayLinks: [],
       hiddenMethLinks: 0,
-      lastLoadedAt: null
+      lastLoadedAt: null,
+      dataUpdatedAt: null
     };
 
     const zoneDefinitions = [
@@ -574,6 +575,29 @@
       } catch (e) {
         return fallback;
       }
+    }
+
+    async function fetchJSONWithMeta(path, fallback) {
+      try {
+        const sep = path.includes('?') ? '&' : '?';
+        const res = await fetch(path + sep + 't=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) return { data: fallback, updatedAt: null };
+        const lastModified = res.headers.get('Last-Modified');
+        const updatedAt = lastModified ? new Date(lastModified) : null;
+        return { data: await res.json(), updatedAt: updatedAt && !Number.isNaN(updatedAt.getTime()) ? updatedAt : null };
+      } catch (e) {
+        return { data: fallback, updatedAt: null };
+      }
+    }
+
+    function formatDateTime(date) {
+      if (!date) return '';
+      const pad = value => String(value).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    function latestDate(...dates) {
+      return dates.filter(Boolean).sort((a, b) => b.getTime() - a.getTime())[0] || null;
     }
 
     function mergeProfile(base) {
@@ -1173,8 +1197,8 @@
       $('metric-down').textContent = rawNodes.filter(n => Number(n.status) !== 0 || deviceHasDownPort(n)).length;
       $('metric-fault-links').textContent = state.displayLinks.filter(link => link.down).length;
       $('metric-meth').textContent = state.showMeth ? 0 : state.hiddenMethLinks || 0;
-      const loadedAt = state.lastLoadedAt
-        ? ` / 更新 ${state.lastLoadedAt.toLocaleTimeString('zh-CN', { hour12: false })}`
+      const loadedAt = state.dataUpdatedAt
+        ? ` / 更新时间 ${formatDateTime(state.dataUpdatedAt)}`
         : '';
       $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${state.links.length} 条原始链路${loadedAt}`;
     }
@@ -1553,9 +1577,12 @@
       const cfgRaw = await fetchJSON('/topology/api/config/topology_config', await fetchJSON('config/topology_config.json', {}));
       state.config = mergeProfile(cfgRaw || {});
       state.groupRules = await fetchJSON('/topology/api/config/group_rules', await fetchJSON('config/group_rules.json', { groups: [] }));
-      state.topology = await fetchJSON('topology.json', { nodes: [] });
-      state.links = await fetchJSON('links.json', []);
+      const topologyResult = await fetchJSONWithMeta('topology.json', { nodes: [] });
+      const linksResult = await fetchJSONWithMeta('links.json', []);
+      state.topology = topologyResult.data;
+      state.links = linksResult.data;
       state.lastLoadedAt = new Date();
+      state.dataUpdatedAt = latestDate(topologyResult.updatedAt, linksResult.updatedAt) || state.lastLoadedAt;
       state.showMeth = methToggle.checked || ((state.config.display || {}).showMethInterfaces === true);
       methToggle.checked = state.showMeth;
       $('page-title').textContent = (state.config.title || '架构拓扑视图') + ' - 架构视图';
