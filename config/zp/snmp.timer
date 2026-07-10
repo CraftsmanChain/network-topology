@@ -1,0 +1,11 @@
+# /etc/systemd/system/snmp.timer
+[Unit]
+Description=Run snmp.service 5 minutes after last completion
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

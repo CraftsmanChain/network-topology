@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "updatedAt": "2026-06-25T00:00:00.000Z",
+  "refresh_ms": 360000,
+  "layout": {
+    "rows": [
+      [
+        "mgmt",
+        "oob"
+      ],
+      [
+        "compute",
+        "storage"
+      ]
+    ]
+  },
+  "zones": [
+    {
+      "id": "mgmt",
+      "title": "带内管理区",
+      "subtitle": "MGT：带内汇聚 / 带内接入",
+      "column": "left",
+      "minH": 220,
+      "include_regex": [
+        "MGT",
+        "MGMT",
+        "带内",
+        "管理"
+      ],
+      "exclude_regex": [
+        "NETOOB",
+        "OOB",
+        "带外"
+      ]
+    },
+    {
+      "id": "oob",
+      "title": "带外管理区",
+      "subtitle": "OOB：带外汇聚 / 带外接入",
+      "column": "right",
+      "minH": 220,
+      "include_regex": [
+        "NETOOB",
+        "OOB",
+        "带外"
+      ]
+    },
+    {
+      "id": "compute",
+      "title": "智算区",
+      "subtitle": "Calc：智算汇聚 / 智算接入",
+      "column": "left",
+      "minH": 250,
+      "include_regex": [
+        "Calc",
+        "ROCE",
+        "智算"
+      ],
+      "default": true
+    },
+    {
+      "id": "storage",
+      "title": "存储区",
+      "subtitle": "Stor：存储汇聚 / 存储接入",
+      "column": "right",
+      "minH": 250,
+      "include_regex": [
+        "Stor",
+        "Storage",
+        "存储"
+      ]
+    }
+  ],
+  "clusters": [
+    {
+      "id": "shared",
+      "title": "共用设备",
+      "order": 1,
+      "default": true
+    },
+    {
+      "id": "ali",
+      "title": "阿里集群",
+      "order": 2,
+      "include_regex": [
+        "CTYUN"
+      ]
+    },
+    {
+      "id": "zp",
+      "title": "智谱集群",
+      "order": 3,
+      "include_regex": [
+        "(^|[-_])ZP"
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "id": "aggregate",
+      "title": "汇聚",
+      "order": 1,
+      "include_regex": [
+        "Spine",
+        "AGG",
+        "Core",
+        "汇聚",
+        "核心"
+      ]
+    },
+    {
+      "id": "access",
+      "title": "接入",
+      "order": 2,
+      "include_regex": [
+        "Leaf",
+        "TOR",
+        "CLeaf",
+        "SLeaf",
+        "接入"
+      ]
+    },
+    {
+      "id": "device",
+      "title": "设备",
+      "order": 3,
+      "default": true
+    }
+  ]
+}

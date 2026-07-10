@@ -1,0 +1,10 @@
+[Unit]
+Description=SNMP Exporter
+After=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=/usr/local/exporters/snmp_exporter/snmp_exporter --config.file=/usr/local/exporters/snmp_exporter/snmp_*.yml --snmp.module-concurrency=3
+
+[Install]
+WantedBy=multi-user.target

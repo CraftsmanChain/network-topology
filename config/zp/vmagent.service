@@ -1,0 +1,25 @@
+# /etc/systemd/system/vmagent.service
+[Unit]
+Description=VictoriaMetrics Agent
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/local/vm
+ExecStart=/data/local/vm/bin/vmagent-prod -promscrape.config=/data/local/vm/cfg/prometheus.yml -remoteWrite.url=http://localhost:8480/insert/0/prometheus/ -httpListenAddr=:8429 -remoteWrite.tmpDataPath=/data/local/vm/data/vmagent-remotewrite-data
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 环境变量
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=GOMAXPROCS=auto
+
+[Install]
+WantedBy=multi-user.target

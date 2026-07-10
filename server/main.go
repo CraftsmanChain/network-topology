@@ -20,44 +20,36 @@ import (
 
 // Minimal backend for config editing with auth from config/.users.local
 
+const releaseVersion = "v2.0.0"
+
 func main() {
 	r := gin.Default()
 	r.Use(CORSMiddleware())
 	// gzip compression to reduce payload size of JSON/HTML
 	r.Use(gzip.Gzip(gzip.DefaultCompression))
-	// Cache-Control headers to improve client-side caching
+	// Topology HTML/JSON changes frequently and must not be cached aggressively,
+	// otherwise 8281 测试环境很容易看到旧页面和旧配置。
 	r.Use(func(c *gin.Context) {
-		c.Next()
-		// Respect existing header if set by handler
-		if c.Writer.Header().Get("Cache-Control") != "" {
-			return
-		}
 		p := c.Request.URL.Path
 		// Long cache for static assets (icons/images)
 		if strings.HasPrefix(p, "/topology/icons/") ||
 			strings.HasSuffix(p, ".png") || strings.HasSuffix(p, ".jpg") || strings.HasSuffix(p, ".jpeg") || strings.HasSuffix(p, ".svg") {
-			c.Writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			return
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		} else if p == "/topology" || p == "/topology/" || strings.HasSuffix(p, ".html") || strings.HasSuffix(p, ".json") {
+			setNoCacheHeaders(c)
+		} else {
+			c.Header("Cache-Control", "public, max-age=300")
 		}
-		// HTML gets short cache to allow quick updates
-		if strings.HasSuffix(p, ".html") {
-			c.Writer.Header().Set("Cache-Control", "public, max-age=300")
-			return
-		}
-		// JSON aligns with 6-minute update cycle
-		if strings.HasSuffix(p, ".json") {
-			c.Writer.Header().Set("Cache-Control", "public, max-age=360")
-			return
-		}
-		// Default
-		c.Writer.Header().Set("Cache-Control", "public, max-age=300")
+		c.Next()
 	})
 
 	// All routes grouped under /topology
 	topo := r.Group("/topology")
 
 	// health
-	topo.GET("/api/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	topo.GET("/api/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": releaseVersion})
+	})
 
 	// login
 	topo.POST("/api/login", loginHandler)
@@ -69,6 +61,7 @@ func main() {
 	// protected endpoints
 	secret := getJWTSecret()
 	api := topo.Group("/api", AuthMiddleware([]byte(secret)))
+	api.GET("/auth/check", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 	api.PUT("/config/:name", putConfigHandler)
 	api.GET("/history/:name", listHistoryHandler)
 	api.POST("/history/:name/rollback", rollbackHistoryHandler)
@@ -86,23 +79,20 @@ func main() {
 	// serve icons under /topology/icons to match front-end relative paths
 	topo.Static("/icons", filepath.Join(webRoot, "icons"))
 
-	// alias legacy paths to topology.html to ensure local preview
+	// 所有入口统一落到架构视图；管理后台仍保留用于编辑架构相关配置。
 	topo.GET("/zg-debug.html", func(c *gin.Context) {
-		c.File(filepath.Join(webRoot, "topology.html"))
+		serveNoCacheFile(c, filepath.Join(webRoot, "topology.html"))
 	})
-	// explicit legacy route for zp-debug.html
 	topo.GET("/zp-debug.html", func(c *gin.Context) {
-		c.File(filepath.Join(webRoot, "topology.html"))
+		serveNoCacheFile(c, filepath.Join(webRoot, "topology.html"))
 	})
-	// alias login.html and config.html for convenience
-	topo.GET("/login.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "login.html")) })
-	topo.GET("/config.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "config.html")) })
-	// architecture view is the default entry; legacy modern URLs keep the classic view.
-	topo.GET("/", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
-	topo.GET("/topology.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology-modern.html")) })
-	topo.GET("/classic.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
-	topo.GET("/modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
-	topo.GET("/topology-modern.html", func(c *gin.Context) { c.File(filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/login.html", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "login.html")) })
+	topo.GET("/config.html", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "config.html")) })
+	topo.GET("/", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/topology.html", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/classic.html", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/modern.html", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "topology.html")) })
+	topo.GET("/topology-modern.html", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "topology.html")) })
 
 	// expose active config directory under /topology/config so frontends can fetch JSON directly
 	topo.Static("/config", configDir)
@@ -223,6 +213,17 @@ func main() {
 	_ = r.Run(":" + port)
 }
 
+func setNoCacheHeaders(c *gin.Context) {
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+}
+
+func serveNoCacheFile(c *gin.Context, path string) {
+	setNoCacheHeaders(c)
+	c.File(path)
+}
+
 // ===== CORS =====
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -320,8 +321,6 @@ func AuthMiddleware(secret []byte) gin.HandlerFunc {
 var allowedNames = map[string]string{
 	"group_rules":     "group_rules.json",
 	"topology_config": "topology_config.json",
-	"positions":       "positions.json",
-	"link_overrides":  "link_overrides.json",
 	"architecture":    "architecture_config.json",
 }
 

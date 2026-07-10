@@ -8,6 +8,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -27,6 +28,135 @@ type Link struct {
 	SourcePort string `json:"sourcePort"`
 	Target     string `json:"target"`
 	TargetPort string `json:"targetPort"`
+}
+
+func endpointKey(host, port string) string {
+	return host + "\x00" + port
+}
+
+func undirectedLinkKey(link Link) string {
+	left := endpointKey(link.Source, link.SourcePort)
+	right := endpointKey(link.Target, link.TargetPort)
+	if left <= right {
+		return left + "\x01" + right
+	}
+	return right + "\x01" + left
+}
+
+func otherEndpointKey(link Link, current string) string {
+	if endpointKey(link.Source, link.SourcePort) == current {
+		return endpointKey(link.Target, link.TargetPort)
+	}
+	return endpointKey(link.Source, link.SourcePort)
+}
+
+func preferConflictLink(a, b Link, conflictEndpoint string, pairSupport map[string]int, endpointToLinks map[string][]int) bool {
+	supportA := pairSupport[undirectedLinkKey(a)]
+	supportB := pairSupport[undirectedLinkKey(b)]
+	if supportA != supportB {
+		return supportA > supportB
+	}
+
+	otherA := otherEndpointKey(a, conflictEndpoint)
+	otherB := otherEndpointKey(b, conflictEndpoint)
+	conflictsA := len(endpointToLinks[otherA])
+	conflictsB := len(endpointToLinks[otherB])
+	if conflictsA != conflictsB {
+		return conflictsA < conflictsB
+	}
+
+	keyA := undirectedLinkKey(a)
+	keyB := undirectedLinkKey(b)
+	if keyA != keyB {
+		return keyA < keyB
+	}
+
+	fullA := fmt.Sprintf("%s-%s-%s-%s", a.Source, a.SourcePort, a.Target, a.TargetPort)
+	fullB := fmt.Sprintf("%s-%s-%s-%s", b.Source, b.SourcePort, b.Target, b.TargetPort)
+	return fullA < fullB
+}
+
+func resolvePortConflicts(links []Link, pairSupport map[string]int) []Link {
+	if len(links) <= 1 {
+		return links
+	}
+
+	active := make([]bool, len(links))
+	for i := range active {
+		active[i] = true
+	}
+
+	for {
+		endpointToLinks := make(map[string][]int)
+		for i, link := range links {
+			if !active[i] {
+				continue
+			}
+			srcKey := endpointKey(link.Source, link.SourcePort)
+			tgtKey := endpointKey(link.Target, link.TargetPort)
+			endpointToLinks[srcKey] = append(endpointToLinks[srcKey], i)
+			endpointToLinks[tgtKey] = append(endpointToLinks[tgtKey], i)
+		}
+
+		changed := false
+		for ep, idxs := range endpointToLinks {
+			if len(idxs) <= 1 {
+				continue
+			}
+			best := idxs[0]
+			for _, idx := range idxs[1:] {
+				if preferConflictLink(links[idx], links[best], ep, pairSupport, endpointToLinks) {
+					best = idx
+				}
+			}
+			for _, idx := range idxs {
+				if idx == best || !active[idx] {
+					continue
+				}
+				active[idx] = false
+				changed = true
+				debugPrintf("Conflict link dropped at endpoint=%s keep=%+v drop=%+v support_keep=%d support_drop=%d\n",
+					ep, links[best], links[idx], pairSupport[undirectedLinkKey(links[best])], pairSupport[undirectedLinkKey(links[idx])])
+			}
+		}
+
+		if !changed {
+			break
+		}
+	}
+
+	resolved := make([]Link, 0, len(links))
+	for i, link := range links {
+		if active[i] {
+			resolved = append(resolved, link)
+		}
+	}
+	if len(resolved) != len(links) {
+		fmt.Printf("已消解端口冲突链路: %d -> %d\n", len(links), len(resolved))
+	}
+	return resolved
+}
+
+type CollectorConfig struct {
+	Version    int              `json:"version"`
+	Monitoring MonitoringConfig `json:"monitoring"`
+}
+
+type MonitoringConfig struct {
+	QueryURLs         []string `json:"query_urls"`
+	ProbeQueries      []string `json:"probe_queries"`
+	RequestTimeoutSec int      `json:"request_timeout_sec"`
+}
+
+func defaultCollectorConfig() CollectorConfig {
+	return CollectorConfig{
+		Version: 1,
+		Monitoring: MonitoringConfig{
+			QueryURLs:         []string{},
+			ProbeQueries:      []string{"up"},
+			RequestTimeoutSec: 15,
+		},
+	}
 }
 
 // 调试辅助：通过环境变量开启调试日志
@@ -98,12 +228,110 @@ func isAbbreviatedPortName(s string) bool {
 	return false
 }
 
-// 规范化显示端口名：特例将 "eth0" 统一为 "Ethernet0"
-func normalizePortName(s string) string {
-	if strings.EqualFold(strings.TrimSpace(s), "eth0") {
-		return "Ethernet0"
+func isHexBytePair(s string) bool {
+	if len(s) != 2 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func isMACAddress(s string) bool {
+	parts := strings.Split(strings.TrimSpace(s), ":")
+	if len(parts) != 6 {
+		return false
+	}
+	for _, part := range parts {
+		if !isHexBytePair(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func insertSpaceAfterPrefix(s string, prefixes []string) string {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(s, prefix) {
+			rest := strings.TrimSpace(strings.TrimPrefix(s, prefix))
+			if rest == "" {
+				return prefix
+			}
+			return prefix + " " + rest
+		}
 	}
 	return s
+}
+
+// 规范化显示端口名，统一不同厂商接口名的展示格式。
+func normalizePortName(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.EqualFold(s, "eth0") {
+		return "Ethernet0"
+	}
+	s = insertSpaceAfterPrefix(s, []string{
+		"M-GigabitEthernet",
+		"FourHundredGigabitEthernet",
+		"FourHundredGigE",
+		"HundredGigabitEthernet",
+		"HundredGigE",
+		"FHGigabitEthernet",
+		"Ten-GigabitEthernet",
+		"TenGigabitEthernet",
+		"FortyGigabitEthernet",
+		"FortyGigE",
+		"TwentyFiveGigE",
+		"TwentyFiveGigabitEthernet",
+		"25GE",
+		"100GE",
+		"40GE",
+		"10GE",
+		"GigabitEthernet",
+	})
+	return s
+}
+
+func shouldResolvePortName(s string) bool {
+	s = strings.TrimSpace(s)
+	return s == "" || !isPrintableASCII(s) || isAbbreviatedPortName(s) || isMACAddress(s)
+}
+
+func isLikelyInterfaceName(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	if strings.HasPrefix(s, "Link-to-") || strings.Contains(s, "(Port") {
+		return false
+	}
+	lower := strings.ToLower(s)
+	if lower == "eth7x" {
+		return false
+	}
+	if lower == "eth0" {
+		return true
+	}
+	prefixes := []string{
+		"ethernet",
+		"fourhundredgige",
+		"hundredgige",
+		"fhgigabitethernet",
+		"gigabitethernet",
+		"m-gigabitethernet",
+		"port-channel",
+		"vlan",
+		"loopback",
+		"inloopback",
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // 根据指标标签提取主机标识，优先使用 hostname，缺失则回退到 instance
@@ -118,17 +346,96 @@ func getHost(m map[string]string) string {
 	return ""
 }
 
+func normalizeQueryURL(url string) string {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return ""
+	}
+	if !strings.HasSuffix(strings.TrimRight(url, "/"), "/api/v1/query") {
+		url = strings.TrimRight(url, "/") + "/api/v1/query"
+	}
+	return url
+}
+
+func collectorConfigCandidates() []string {
+	candidates := []string{}
+	if v := strings.TrimSpace(os.Getenv("COLLECTOR_CONFIG")); v != "" {
+		candidates = append(candidates, v)
+	}
+	if v := strings.TrimSpace(os.Getenv("CONFIG_DIR")); v != "" {
+		candidates = append(candidates, filepath.Join(v, "collector_config.json"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(wd, "config", "collector_config.json"))
+	}
+	return candidates
+}
+
+func loadCollectorConfig() CollectorConfig {
+	cfg := defaultCollectorConfig()
+	for _, path := range collectorConfigCandidates() {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var loaded CollectorConfig
+		if err := json.Unmarshal(body, &loaded); err != nil {
+			fmt.Printf("[WARNING] 读取采集配置失败 %s: %v\n", path, err)
+			continue
+		}
+		if loaded.Version != 0 {
+			cfg.Version = loaded.Version
+		}
+		if len(loaded.Monitoring.QueryURLs) > 0 {
+			cfg.Monitoring.QueryURLs = loaded.Monitoring.QueryURLs
+		}
+		if len(loaded.Monitoring.ProbeQueries) > 0 {
+			cfg.Monitoring.ProbeQueries = loaded.Monitoring.ProbeQueries
+		}
+		if loaded.Monitoring.RequestTimeoutSec > 0 {
+			cfg.Monitoring.RequestTimeoutSec = loaded.Monitoring.RequestTimeoutSec
+		}
+		return cfg
+	}
+	return cfg
+}
+
+func requestTimeout() time.Duration {
+	sec := loadCollectorConfig().Monitoring.RequestTimeoutSec
+	if sec <= 0 {
+		sec = 15
+	}
+	return time.Duration(sec) * time.Second
+}
+
+func probeQueries() []string {
+	values := loadCollectorConfig().Monitoring.ProbeQueries
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) == 0 {
+		return []string{"up"}
+	}
+	return result
+}
+
 func defaultPromURLs() []string {
 	if v := strings.TrimSpace(os.Getenv("PROM_QUERY_URL")); v != "" {
-		return []string{v}
+		return []string{normalizeQueryURL(v)}
 	}
 	if v := strings.TrimSpace(os.Getenv("PROM_URL")); v != "" {
-		return []string{v}
+		return []string{normalizeQueryURL(v)}
 	}
-	return []string{
-		"http://10.27.3.68:8481/select/0/prometheus",
-		"http://10.102.10.6:9090",
+	result := []string{}
+	for _, value := range loadCollectorConfig().Monitoring.QueryURLs {
+		if normalized := normalizeQueryURL(value); normalized != "" {
+			result = append(result, normalized)
+		}
 	}
+	return result
 }
 
 func buildQueryURL(promURL, metric string) string {
@@ -145,7 +452,7 @@ func buildQueryURL(promURL, metric string) string {
 func queryPrometheus(promURL, metric string) (PromResult, error) {
 	queryURL := buildQueryURL(promURL, metric)
 	debugPrintf("Querying: %s\n", queryURL)
-	client := http.Client{Timeout: 15 * time.Second}
+	client := http.Client{Timeout: requestTimeout()}
 	resp, err := client.Get(queryURL)
 	if err != nil {
 		debugPrintf("HTTP error: %v\n", err)
@@ -167,9 +474,11 @@ func queryPrometheus(promURL, metric string) (PromResult, error) {
 
 func choosePromURL() string {
 	for _, candidate := range defaultPromURLs() {
-		if upData, err := queryPrometheus(candidate, "up"); err == nil && len(upData.Data.Result) > 0 {
-			fmt.Printf("使用监控查询地址: %s\n", strings.TrimRight(candidate, "/"))
-			return strings.TrimRight(candidate, "/")
+		for _, probeQuery := range probeQueries() {
+			if upData, err := queryPrometheus(candidate, probeQuery); err == nil && len(upData.Data.Result) > 0 {
+				fmt.Printf("使用监控查询地址: %s\n", strings.TrimRight(candidate, "/"))
+				return strings.TrimRight(candidate, "/")
+			}
 		}
 	}
 	return ""
@@ -189,13 +498,13 @@ func main() {
 	remPortDescData, _ := queryPrometheus(promURL, "lldpRemPortDesc")
 	// 额外查询：本机 sysName 指标（标签 sysName）用于 Source 名称统一
 	hostSysData, _ := queryPrometheus(promURL, "sysName")
-	// 查询接口名：用于当本地端口 ID 不可读时回退为 ifName/ifDescr
-	// 查询 ifIndex 指标（包含 ifDescr 和 ifName 信息）
-	ifIndexQuery := "ifIndex"
-	ifIndexData, _ := queryPrometheus(promURL, ifIndexQuery)
+	// 查询接口元数据：ifHighSpeed 标签上通常携带 ifDescr/ifName/ifAlias，
+	// 比 ifIndex 在该集群更稳定，可同时用于源端口和对端别名反查。
+	ifMetaQuery := "ifHighSpeed"
+	ifMetaData, _ := queryPrometheus(promURL, ifMetaQuery)
 
-	debugPrintf("Result counts -> loc: %d, rem: %d, sys: %d, remDesc: %d, hostSys: %d, ifIndex: %d\n",
-		len(locData.Data.Result), len(remData.Data.Result), len(sysData.Data.Result), len(remPortDescData.Data.Result), len(hostSysData.Data.Result), len(ifIndexData.Data.Result))
+	debugPrintf("Result counts -> loc: %d, rem: %d, sys: %d, remDesc: %d, hostSys: %d, ifMeta: %d\n",
+		len(locData.Data.Result), len(remData.Data.Result), len(sysData.Data.Result), len(remPortDescData.Data.Result), len(hostSysData.Data.Result), len(ifMetaData.Data.Result))
 
 	// 构建映射
 	locMap := make(map[string]map[string]string)        // host -> portNum -> sourcePort
@@ -210,6 +519,7 @@ func main() {
 	ifNameByBase := make(map[string]map[string]string)         // baseIP -> ifIndex -> ifName
 	ifDescrByBase := make(map[string]map[string]string)        // baseIP -> ifIndex -> ifDescr
 	instForIfDescrByBase := make(map[string]map[string]string) // baseIP -> ifIndex -> instance
+	portByAliasByBase := make(map[string]map[string]string)    // baseIP -> ifAlias -> portName
 	// 对端端口描述映射（当 lldpRemPortId 为简写时使用）
 	remPortDescMap := make(map[string]map[string]string) // host -> localPortNum -> lldpRemPortDesc
 
@@ -217,7 +527,7 @@ func main() {
 		host := getHost(r.Metric)
 		portNum := r.Metric["lldpLocPortNum"]
 		portHex := r.Metric["lldpLocPortId"]
-		port := decodeHex(portHex)
+		port := normalizePortName(decodeHex(portHex))
 		if locMap[host] == nil {
 			locMap[host] = make(map[string]string)
 		}
@@ -303,18 +613,22 @@ func main() {
 		}
 	}
 
-	// 接口名与描述映射构建（用于来源端口回退）
-	for _, r := range ifIndexData.Data.Result {
+	// 接口名与别名映射构建（用于来源端口回退与对端端口反查）
+	for _, r := range ifMetaData.Data.Result {
 		inst := strings.TrimSpace(r.Metric["instance"])
 		idx := strings.TrimSpace(r.Metric["ifIndex"])
-		// 优先使用 ifDescr，如果没有则使用 ifName
-		portName := strings.TrimSpace(r.Metric["ifDescr"])
+		if inst == "" || idx == "" {
+			continue
+		}
+		ifName := normalizePortName(strings.TrimSpace(r.Metric["ifName"]))
+		portName := normalizePortName(strings.TrimSpace(r.Metric["ifDescr"]))
 		if portName == "" {
-			portName = strings.TrimSpace(r.Metric["ifName"])
+			portName = ifName
 		}
 		if portName == "" {
 			continue
 		}
+		alias := strings.TrimSpace(r.Metric["ifAlias"])
 
 		// 填充 ifDescrMap（保持向后兼容）
 		if ifDescrMap[inst] == nil {
@@ -325,6 +639,9 @@ func main() {
 		// 基于 IP 的聚合，确保以 baseIP+ifIndex 命中端口名
 		base := baseInstance(inst)
 		if base != "" {
+			if ifNameByBase[base] == nil {
+				ifNameByBase[base] = make(map[string]string)
+			}
 			if ifDescrByBase[base] == nil {
 				ifDescrByBase[base] = make(map[string]string)
 			}
@@ -335,6 +652,15 @@ func main() {
 				ifDescrByBase[base][idx] = portName
 				instForIfDescrByBase[base][idx] = inst
 			}
+			if ifName != "" {
+				ifNameByBase[base][idx] = ifName
+			}
+			if alias != "" {
+				if portByAliasByBase[base] == nil {
+					portByAliasByBase[base] = make(map[string]string)
+				}
+				portByAliasByBase[base][alias] = portName
+			}
 			if instancesByBase[base] == nil {
 				instancesByBase[base] = make(map[string]bool)
 			}
@@ -344,7 +670,9 @@ func main() {
 
 	// 构建 link
 	var links []Link
-	seen := make(map[string]bool) // 去重
+	seenPairs := make(map[string]bool)        // 无向 pair 去重
+	seenObservations := make(map[string]bool) // 同方向重复观测去重
+	pairSupport := make(map[string]int)       // 记录双向互认强度
 	for _, r := range remData.Data.Result {
 		host := getHost(r.Metric)
 		localPortNum := strings.TrimSpace(r.Metric["lldpRemLocalPortNum"])
@@ -455,13 +783,29 @@ func main() {
 		if m := remPortDescMap[host]; m != nil {
 			remDesc = strings.TrimSpace(m[localPortNum])
 		}
-		if remDesc != "" {
-			if targetPort == "" || !isPrintableASCII(targetPort) || isAbbreviatedPortName(targetPort) {
-				debugPrintf("TargetPort override using lldpRemPortDesc: host=%s localPortNum=%s old=%s new=%s\n", host, localPortNum, targetPort, remDesc)
+		if shouldResolvePortName(targetPort) && remDesc != "" {
+			if isLikelyInterfaceName(remDesc) {
+				debugPrintf("TargetPort resolved via lldpRemPortDesc: host=%s target=%s localPortNum=%s desc=%s\n", host, targetHost, localPortNum, remDesc)
 				targetPort = normalizePortName(remDesc)
+			} else {
+				targetBaseCandidates := []string{
+					baseInstance(sysNameToInstance[targetHost]),
+					baseInstance(instanceByHost[targetHost]),
+					baseInstance(targetHost),
+				}
+				for _, targetBase := range targetBaseCandidates {
+					if targetBase == "" {
+						continue
+					}
+					if resolved := strings.TrimSpace(portByAliasByBase[targetBase][remDesc]); resolved != "" {
+						debugPrintf("TargetPort resolved via ifAlias: host=%s target=%s base=%s localPortNum=%s alias=%s port=%s\n", host, targetHost, targetBase, localPortNum, remDesc, resolved)
+						targetPort = normalizePortName(resolved)
+						break
+					}
+				}
 			}
 		}
-		if targetPort == "" || !isPrintableASCII(targetPort) {
+		if targetPort == "" || !isPrintableASCII(targetPort) || isMACAddress(targetPort) {
 			fallback := fmt.Sprintf("Port%s", localPortNum)
 			debugPrintf("TargetPort fallback to Port#: source=%s target=%s instance=%s portNum=%s value=%s\n", sourceHost, targetHost, inst, localPortNum, fallback)
 			targetPort = fallback
@@ -487,23 +831,30 @@ func main() {
 			continue
 		}
 
-		// 去重处理，保证 {"A","p1","B","p2"} 与 {"B","p2","A","p1"} 不重复
-		key1 := fmt.Sprintf("%s-%s-%s-%s", sourceHost, sourcePort, targetHost, targetPort)
-		key2 := fmt.Sprintf("%s-%s-%s-%s", targetHost, targetPort, sourceHost, sourcePort)
-		if seen[key1] || seen[key2] {
-			debugPrintf("Duplicate link skipped: %s or %s\n", key1, key2)
-			continue
-		}
-		seen[key1] = true
-
-		links = append(links, Link{
+		link := Link{
 			Source:     sourceHost,
 			SourcePort: sourcePort,
 			Target:     targetHost,
 			TargetPort: targetPort,
-		})
+		}
+		directedKey := fmt.Sprintf("%s-%s-%s-%s", sourceHost, sourcePort, targetHost, targetPort)
+		if seenObservations[directedKey] {
+			debugPrintf("Duplicate observation skipped: %s\n", directedKey)
+			continue
+		}
+		seenObservations[directedKey] = true
+
+		pairKey := undirectedLinkKey(link)
+		pairSupport[pairKey]++
+		if seenPairs[pairKey] {
+			debugPrintf("Reverse observation merged into pair: %s (support=%d)\n", pairKey, pairSupport[pairKey])
+			continue
+		}
+		seenPairs[pairKey] = true
+		links = append(links, link)
 	}
 
+	links = resolvePortConflicts(links, pairSupport)
 	debugPrintf("Built links: %d\n", len(links))
 
 	// 若未获取到任何链路数据，则只打印提醒信息，不更新文件

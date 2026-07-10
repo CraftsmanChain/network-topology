@@ -1,0 +1,10 @@
+[Service]
+Environment=HOME=/root
+Environment=GOCACHE=/root/.cache/go-build
+Environment=PROM_QUERY_URL=http://10.102.10.7:8481/select/0/prometheus/api/v1/query
+Environment=VM_TARGETS_URL=http://10.102.10.7:8429/api/v1/targets
+Type=oneshot
+WorkingDirectory=/ops/web/topology
+ExecStart=/usr/bin/python3 /ops/web/topology/cmd/devices.py
+ExecStart=/bin/bash -lc 'go run /ops/web/topology/cmd/lldp.go'
+ExecStart=/usr/bin/python3 /ops/web/topology/cmd/snmp.py

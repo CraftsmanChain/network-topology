@@ -1,0 +1,11 @@
+# /etc/systemd/system/snmp_exporter.service
+[Unit]
+Description=SNMP Exporter
+After=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=/opt/snmp_exporter/snmp_exporter --config.file=/opt/snmp_exporter/snmp_*.yml --snmp.module-concurrency=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,75 @@
+# WARNING: This file was auto-generated using snmp_exporter generator, manual changes will be lost.
+modules:
+  lldp_info:
+    walk:
+    - 1.0.8802.1.1.2.1.3.7.1.3
+    - 1.0.8802.1.1.2.1.3.7.1.4
+    - 1.0.8802.1.1.2.1.4.1.1.5
+    - 1.0.8802.1.1.2.1.4.1.1.7
+    - 1.0.8802.1.1.2.1.4.1.1.8
+    - 1.0.8802.1.1.2.1.4.1.1.9
+    metrics:
+    - name: lldpLocPortId
+      oid: 1.0.8802.1.1.2.1.3.7.1.3
+      type: LldpPortId
+      help: The string value used to identify the port component associated with a
+        given port in the local system. - 1.0.8802.1.1.2.1.3.7.1.3
+      indexes:
+      - labelname: lldpLocPortNum
+        type: gauge
+    - name: lldpLocPortDesc
+      oid: 1.0.8802.1.1.2.1.3.7.1.4
+      type: DisplayString
+      help: The string value used to identify the 802 LAN station's port description
+        associated with the local system - 1.0.8802.1.1.2.1.3.7.1.4
+      indexes:
+      - labelname: lldpLocPortNum
+        type: gauge
+    - name: lldpRemChassisId
+      oid: 1.0.8802.1.1.2.1.4.1.1.5
+      type: OctetString
+      help: The string value used to identify the chassis component associated with
+        the remote system. - 1.0.8802.1.1.2.1.4.1.1.5
+      indexes:
+      - labelname: lldpRemTimeMark
+        type: gauge
+      - labelname: lldpRemLocalPortNum
+        type: gauge
+      - labelname: lldpRemIndex
+        type: gauge
+    - name: lldpRemPortId
+      oid: 1.0.8802.1.1.2.1.4.1.1.7
+      type: LldpPortId
+      help: The string value used to identify the port component associated with the
+        remote system. - 1.0.8802.1.1.2.1.4.1.1.7
+      indexes:
+      - labelname: lldpRemTimeMark
+        type: gauge
+      - labelname: lldpRemLocalPortNum
+        type: gauge
+      - labelname: lldpRemIndex
+        type: gauge
+    - name: lldpRemPortDesc
+      oid: 1.0.8802.1.1.2.1.4.1.1.8
+      type: DisplayString
+      help: The string value used to identify the description of the given port associated
+        with the remote system. - 1.0.8802.1.1.2.1.4.1.1.8
+      indexes:
+      - labelname: lldpRemTimeMark
+        type: gauge
+      - labelname: lldpRemLocalPortNum
+        type: gauge
+      - labelname: lldpRemIndex
+        type: gauge
+    - name: lldpRemSysName
+      oid: 1.0.8802.1.1.2.1.4.1.1.9
+      type: DisplayString
+      help: The string value used to identify the system name of the remote system.
+        - 1.0.8802.1.1.2.1.4.1.1.9
+      indexes:
+      - labelname: lldpRemTimeMark
+        type: gauge
+      - labelname: lldpRemLocalPortNum
+        type: gauge
+      - labelname: lldpRemIndex
+        type: gauge

@@ -1,38 +1,25 @@
 # config 目录说明
 
-该目录存放管理员模式可编辑的 JSON 配置文件示例：
+该目录存放单一架构视图运行所需的配置与备份：
 
-- group_rules.json：分组规则源（include/exclude 支持正则与 ID 列表）。
-- architecture_config.json：架构视图分区、集群、角色、布局行与刷新周期配置。
-- topology.config.json：全局样式与布局配置（背景色、侧栏模块、刷新策略等）。
-- positions.json：节点与组的坐标、锁定与尺寸（用于拖拽保存布局）。
-- link_overrides.json：连线黑白名单（覆盖动态连线的显隐）。
+- `group_rules.json`：分组规则源（include/exclude 支持正则与 ID 列表）。
+- `architecture_config.json`：架构视图分区、集群、角色、布局行与刷新周期配置。
+- `topology_config.json`：全局样式与布局配置（背景色、侧栏模块、刷新策略、页面标题等）。
+
+当前后台只维护以上 3 份配置。
 
 其他数据源：
-- devices.json（实时设备列表，前端只读）。
-- links.json（实时连线数据，前端只读）。
-- .users.local（明文用户名与密码，2 行；存放于 config/ 目录：`config/.users.local`）。
-  - 第1行：用户名；第2行：密码。
-  - 示例：
-    - admin\n
-    - 123456
+- `devices.json`（实时设备列表，前端只读）。
+- `links.json`（实时连线数据，前端只读）。
 
 字段要点：
-- group_rules.json：
-  - groups[].include_regex/ids、exclude_regex/ids 组合使用；冲突设备需在 UI 中提示与处理。
-  - style_override.forcedStatus 可为 "UP"/"DOWN"/null；颜色与 icon_url 可按需覆盖。
-- architecture_config.json：
-  - zones[] 配置分区，clusters[] 配置集群，roles[] 配置汇聚/接入等角色。
-  - include_ids/exclude_ids 精确匹配设备或组 ID，include_regex/exclude_regex 正则匹配 ID 与显示名。
-  - layout.rows 控制架构视图分区排布；refresh_ms 控制前端自动刷新周期。
-- topology.config.json：
-  - backgroundColor 与现有页面风格一致，示例为 #1f2637。
-  - dynamic_links.debounce_ms 与 grace_ms 控制连线的防抖与宽限期。
-- positions.json：
-  - nodes 与 groups 的坐标与锁定只影响布局，不改变数据源。
-- link_overrides.json：
-  - whitelist 固定显示、blacklist 固定隐藏；仅影响显隐，不改变样式。
-
-tips：
-- 编辑完成后可通过浏览器导出 JSON 文件并替换服务器静态文件。
-- 为保证性能，正则匹配建议在 Web Worker 中进行、预览分页显示。
+- `group_rules.json`
+  - `groups[].include_regex/ids`、`exclude_regex/ids` 可组合使用。
+  - `style_override.forcedStatus` 可为 `"UP"` / `"DOWN"` / `null`；颜色与 `icon_url` 可按需覆盖。
+- `architecture_config.json`
+  - `zones[]` 配置分区，`clusters[]` 配置集群，`roles[]` 配置汇聚/接入等角色。
+  - `include_ids/exclude_ids` 精确匹配设备或组 ID，`include_regex/exclude_regex` 正则匹配 ID 与显示名。
+  - `layout.rows` 控制架构视图分区排布；`refresh_ms` 控制前端自动刷新周期。
+- `topology_config.json`
+  - `title` 会同步到页面主标题与浏览器 `document.title`。
+  - `dynamic_links.debounce_ms` 与 `grace_ms` 控制连线的防抖与宽限期。

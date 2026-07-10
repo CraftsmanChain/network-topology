@@ -32,6 +32,7 @@
     <script>
       const btn = document.getElementById('loginBtn');
       const msg = document.getElementById('msg');
+      const nextUrl = new URLSearchParams(window.location.search).get('next') || '/topology/config.html';
       btn.addEventListener('click', async () => {
         msg.textContent = '';
         const username = document.getElementById('username').value.trim();
@@ -49,7 +50,7 @@
           localStorage.setItem('token', data.token);
           // 记录登录时间，用于免登录窗口
           try { localStorage.setItem('token_time', String(Date.now())); } catch (e) { /* ignore */ }
-          location.href = '/topology/config.html';
+          location.href = nextUrl;
         } catch (e) {
           msg.textContent = e.message || String(e);
         } finally {

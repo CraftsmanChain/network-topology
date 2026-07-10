@@ -1,0 +1,194 @@
+# my global config
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  - job_name: 'victoriametrics'
+    static_configs:
+      - targets: ['localhost:8480']  # vminsert
+      - targets: ['localhost:8481']  # vmselect  
+      - targets: ['localhost:8482']  # vmstorage
+    metrics_path: /metrics
+  - job_name: 'vmalert'
+    static_configs:
+      - targets: ['localhost:8880']
+    metrics_path: /metrics
+  - job_name: 'vmagent'
+    static_configs:
+      - targets: ['localhost:8429']
+    metrics_path: /metrics
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+  - job_name: "prometheus"
+
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+
+    static_configs:
+      - targets: ["localhost:9090"]
+  - job_name: 'node_exporter'
+    scrape_interval: 5s
+    file_sd_configs:
+      - files:
+        - nodes_*.yaml
+  - job_name: 'gpu_exporter'
+    scrape_interval: 5s
+    file_sd_configs:
+      - files:
+        - gpu_*.yaml
+
+  - job_name: 'snmp_exporter-public'    
+    scrape_interval: 1m
+    scrape_timeout: 1m
+    file_sd_configs:    
+      - files:                    
+        - snmp_*.yml   
+    metrics_path: /snmp    
+    params: 
+      module: [if_mib]                     
+    relabel_configs:    
+      - source_labels: [__address__]                    
+        target_label: __param_target                                    
+      - source_labels: [__param_target]                                    
+        target_label: instance                                       
+      - target_label: __address__                              
+        replacement: 10.102.10.6:9116
+      - source_labels: [auth] 
+        target_label: __param_auth
+      - target_label: scrape_pool
+        replacement: snmp_exporter-public
+      - action: replace
+        source_labels: []
+        target_label: job
+        replacement: 'snmp-public' 
+  - job_name: 'snmp_exporter-huasan'
+    scrape_interval: 1m
+    file_sd_configs:
+      - files:
+        - snmp_device.yml
+    metrics_path: /snmp
+    params:
+      module: [huasan]
+      auth: [public_v3]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: scrape_pool
+        replacement: snmp_exporter-huasan
+      - target_label: __address__
+        replacement: 10.102.10.6:9116
+  - job_name: 'snmp_exporter-ruijie'
+    scrape_interval: 1m    
+    file_sd_configs:                
+      - files:                    
+        - snmp_*.yml
+    metrics_path: /snmp    
+    params:                       
+      module: [ruijie]
+    relabel_configs:    
+      - source_labels: [auth]
+        target_label: __param_auth
+      - source_labels: [__address__]                    
+        target_label: __param_target                                    
+      - source_labels: [__param_target]                                      
+        target_label: instance                                    
+      - target_label: scrape_pool
+        replacement: snmp_exporter-ruijie
+      - target_label: __address__                                       
+        replacement: 10.102.10.6:9116                                 
+    metric_relabel_configs:    
+      - source_labels: [ruijieIfIndex]                           
+        target_label: ifIndex
+  - job_name: ipmi_exporter
+    params:    
+      module: ['default']           
+    scrape_interval: 1m    
+    scrape_timeout: 30s                       
+    metrics_path: /ipmi                       
+    scheme: http                       
+    file_sd_configs:                
+      - files:                    
+        - /usr/local/ipmi-exporter/ipmi_targets.yml              
+    relabel_configs:    
+      - source_labels: [__address__]                    
+        separator: ;                                    
+        target_label: __param_target      
+        replacement: $1                                    
+        action: replace                         
+      - source_labels: [__param_target]                       
+        separator: ;                                       
+        target_label: instance                   
+        replacement: $1                              
+        action: replace                         
+      - separator: ;                       
+        target_label: __address__                 
+        replacement: 10.102.10.6:9290                               
+        action: replace
+  # h3c_exporter 抓取任务
+  - job_name: 'h3c_exporter'
+    static_configs:
+      - targets: ['10.102.10.6:9527']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  - job_name: 'snmp_exporter-ruijie-lldp'
+    scrape_interval: 5m
+    file_sd_configs:
+      - files:
+        - snmp_*.yml
+    metrics_path: /snmp
+    params:
+      module: [lldp_info]
+    relabel_configs:
+      - source_labels: [auth]
+        target_label: __param_auth
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: scrape_pool
+        replacement: snmp_exporter-ruijie-lldp
+      - target_label: __address__
+        replacement: 10.102.10.6:9116
+    metric_relabel_configs:
+      - source_labels: [ruijieIfIndex]
+        target_label: ifIndex
+
+  - job_name: 'snmp_exporter-huasan_lldp'
+    scrape_interval: 5m
+    file_sd_configs:
+      - files:
+        - snmp_device.yml
+    metrics_path: /snmp
+    params:
+      module: [lldp_info]
+      auth: [public_v3]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: scrape_pool
+        replacement: snmp_exporter-huasan_lldp
+      - target_label: __address__
+        replacement: 10.102.10.6:9116
+
+  - job_name: "blackbox_icmp"
+    metrics_path: /probe
+    params:
+      module: [icmp] 
+    static_configs:
+      - targets:
+        - 223.5.5.5 
+        - 10.102.100.254
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
