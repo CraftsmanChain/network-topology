@@ -1,0 +1,16 @@
+[Unit]
+Description=Refresh topology data (configured environments)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/ops/web/topology-multi
+Environment=PYTHONUNBUFFERED=1
+Environment=TOPOLOGY_MODE=multi
+Environment=CONFIG_DIR=/ops/web/topology-multi/config
+Environment=ENV_REGISTRY=/ops/web/topology-multi/config/environments.json
+Environment=ENV_SOURCES_FILE=/ops/web/topology-multi/config/.env_sources.local.json
+ExecStart=/usr/bin/python3 /ops/web/topology-multi/cmd/refresh.py
+TimeoutStartSec=0

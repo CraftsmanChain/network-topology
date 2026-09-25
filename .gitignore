@@ -5,3 +5,6 @@ links-alias-raw.json
 devices-meta.json
 lldp.remote
 server/lexun-gin-server
+runtime-data/
+config/.env_sources.local.json
+config/.users.local

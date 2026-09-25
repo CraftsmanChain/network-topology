@@ -1,0 +1,14 @@
+[Unit]
+Description=Collect topology data for slzy
+After=network-online.target
+
+[Service]
+Environment=HOME=/root
+Environment=PROM_QUERY_URL=http://10.80.192.233:18481/select/0/prometheus/api/v1/query
+Environment=VM_TARGETS_URL=http://10.80.192.233:18429/api/v1/targets
+Environment=CONFIG_DIR=/ops/web/topology/config/slzy
+Type=oneshot
+WorkingDirectory=/ops/web/topology/runtime-data/slzy
+ExecStart=/usr/bin/python3 /ops/web/topology/cmd/devices.py
+ExecStart=/ops/web/topology/cmd/lldp
+ExecStart=/usr/bin/python3 /ops/web/topology/cmd/snmp.py

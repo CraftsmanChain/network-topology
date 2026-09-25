@@ -1,0 +1,21 @@
+[Unit]
+Description=Topology Web (multi-environment)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/ops/web/topology-multi/server
+Environment=PORT=8181
+Environment=TOPOLOGY_MODE=multi
+Environment=WEB_ROOT=/ops/web/topology-multi
+Environment=CONFIG_DIR=/ops/web/topology-multi/config
+Environment=CONFIG_BASE_DIR=/ops/web/topology-multi/config
+Environment=ENV_REGISTRY=/ops/web/topology-multi/config/environments.json
+ExecStart=/ops/web/topology-multi/server/topology-web
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -28,12 +28,13 @@
   - Python ≥ 3.8，且安装 `requests`
 - 启动后端：
   - `go run server/main.go`
-  - 浏览器访问 `http://localhost:8181/`
+  - 浏览器访问 `http://localhost:8181/topology/`
 - 可用环境变量：
   - `PORT` 默认 `8181`
   - `WEB_ROOT` 静态资源根目录，默认 `..`（项目根）
   - `CONFIG_DIR` 配置目录，默认 `../config`
   - `DATA_ROOT` 动态数据目录，默认等于 `WEB_ROOT`，可用于测试项目复用现有数据文件
+  - `TOPOLOGY_MODE=single|multi` 指定单环境或多环境；`multi` 读取 `ENV_REGISTRY`（默认 `config/environments.json`）
 
 ## 前端页面
 - `/topology/` 与 `/topology/topology.html` 默认进入架构拓扑视图，按区域、集群、角色聚合展示链路。
@@ -77,8 +78,7 @@
 - `POST /topology/api/history/:name/backup` 备份当前配置
 - `POST /topology/api/history/:name/rollback` 回滚指定历史版本
 - 静态与数据：
-  - `/topology/web` 映射到 `WEB_ROOT`
-  - `/topology/icons` 映射到 `WEB_ROOT/icons`
+  - `/topology/icons` 仅映射到 `WEB_ROOT/icons`；配置目录和本地凭据文件不通过静态路由开放
   - `/topology/` 与 `/topology/topology.html` 进入架构拓扑视图
   - `/topology/modern.html` 与 `/topology/topology-modern.html` 进入架构拓扑视图
   - `/topology/devices.json`、`/topology/links.json`、`/topology/topology.json`、`/topology/prometheus.json` 优先从 `DATA_ROOT` 读取，若不存在则返回空结构
@@ -89,6 +89,8 @@
   - `CONFIG_DIR` 指向配置目录
 - 通过反向代理暴露 `8181` 端口，开启 TLS。
 - 将采集脚本按需写入定时任务，保证数据文件持续更新。
+- 单环境使用 `examples/topology-web.service`、`examples/snmp.service`、`examples/snmp.timer`，部署目录为 `/ops/web/topology`；多环境使用 `examples/multi/` 中同名 unit，部署目录为 `/ops/web/topology-multi`。两者均通过 `topology-web.service` 和 `snmp.timer` 管理，部署模式由 unit 中的 `TOPOLOGY_MODE` 控制。
+- 多环境的 `config/environments.json` 列出集群、数据目录、代理地址和 `secret_ref`；令牌放在 `config/.env_sources.local.json`，权限设为 `0600`。采集由 timer 触发且不重叠执行；查询暂时失败时沿用上一版端口状态。代理模式的 LLDP 邻居默认每小时全量更新一次，可用每个环境的 `lldp_refresh_sec` 调整，其余轮次保留已采到的邻居信息以缩短状态刷新时间。
 
 ## 开发问题记录
 - 前端使用 `vis-network`，图标资源走 `/icons/*`，缓存头已优化。

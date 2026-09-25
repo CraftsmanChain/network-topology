@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh topology data for yczy
+After=network-online.target
+
+[Service]
+Environment=HOME=/root
+Type=oneshot
+WorkingDirectory=/ops/web/topology
+Environment=ENV_REGISTRY=/ops/web/topology/config/zy/environment.json
+ExecStart=/usr/bin/python3 /ops/web/topology/cmd/multi_env_refresh.py

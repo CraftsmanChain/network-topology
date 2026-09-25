@@ -831,11 +831,19 @@
       const name = normalizeName(value);
       if (!name) return false;
       return /^meth/i.test(name)
+        || /^m-gigabitethernet/i.test(name)
+        || /^mgmt(?:\s|$)/i.test(name)
         || /^mgmt [0-9]+$/i.test(name)
         || /^eth0$/i.test(name)
         || /^ethernet0$/i.test(name)
         || /^management port$/i.test(name)
         || /(loopback|null|tunnel|vlan)/i.test(name);
+    }
+
+    function isManagementNodeName(value) {
+      const name = normalizeName(value);
+      if (!name) return false;
+      return /(?:^|[^a-z0-9])(oob|mgmt|gmgt|management)(?:[^a-z0-9]|$)/i.test(name);
     }
 
     function isMethPortName(value) {
@@ -851,7 +859,10 @@
     }
 
     function linkUsesMeth(link) {
-      return isHiddenManagementPortName(link.sourcePort) || isHiddenManagementPortName(link.targetPort);
+      return isHiddenManagementPortName(link.sourcePort)
+        || isHiddenManagementPortName(link.targetPort)
+        || isManagementNodeName(link.source)
+        || isManagementNodeName(link.target);
     }
 
     function portKey(name) {

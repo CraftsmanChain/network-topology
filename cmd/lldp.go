@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+        "sync"
 	"time"
 )
 
@@ -402,7 +404,14 @@ func loadCollectorConfig() CollectorConfig {
 
 func requestTimeout() time.Duration {
 	sec := loadCollectorConfig().Monitoring.RequestTimeoutSec
-	if sec <= 0 {
+        if sec <= 0 {
+                if strings.Contains(strings.TrimSpace(os.Getenv("PROM_QUERY_URL")), "/query-gateway/") {
+                        sec = 30
+                } else {
+                        sec = 15
+                }
+        }
+        if sec <= 0 {
 		sec = 15
 	}
 	return time.Duration(sec) * time.Second
@@ -438,6 +447,14 @@ func defaultPromURLs() []string {
 	return result
 }
 
+func queryGatewayMode() bool {
+        direct := strings.TrimSpace(os.Getenv("PROM_QUERY_URL"))
+        if direct == "" {
+                direct = strings.TrimSpace(os.Getenv("PROM_URL"))
+        }
+        return strings.Contains(direct, "/query-gateway/")
+}
+
 func buildQueryURL(promURL, metric string) string {
 	promURL = strings.TrimRight(strings.TrimSpace(promURL), "/")
 	if !strings.HasSuffix(promURL, "/api/v1/query") {
@@ -448,12 +465,52 @@ func buildQueryURL(promURL, metric string) string {
 	return promURL + "?" + values.Encode()
 }
 
+func skipTLSVerify() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROM_SKIP_TLS_VERIFY"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func requestHeaders() http.Header {
+	headers := http.Header{}
+	if token := strings.TrimSpace(os.Getenv("PROM_BEARER_TOKEN")); token != "" {
+		headers.Set("Authorization", "Bearer "+token)
+	}
+	return headers
+}
+
+var (
+        promHTTPClient     *http.Client
+        promHTTPClientOnce sync.Once
+)
+
+func getPromHTTPClient() *http.Client {
+        promHTTPClientOnce.Do(func() {
+                transport := &http.Transport{}
+                if skipTLSVerify() {
+                        transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+                }
+                promHTTPClient = &http.Client{
+                        Timeout:   requestTimeout(),
+                        Transport: transport,
+                }
+        })
+        return promHTTPClient
+}
+
 // queryPrometheus 查询 Prometheus/VictoriaMetrics 指标
 func queryPrometheus(promURL, metric string) (PromResult, error) {
 	queryURL := buildQueryURL(promURL, metric)
 	debugPrintf("Querying: %s\n", queryURL)
-	client := http.Client{Timeout: requestTimeout()}
-	resp, err := client.Get(queryURL)
+	req, err := http.NewRequest(http.MethodGet, queryURL, nil)
+	if err != nil {
+		return PromResult{}, err
+	}
+	req.Header = requestHeaders()
+        resp, err := getPromHTTPClient().Do(req)
 	if err != nil {
 		debugPrintf("HTTP error: %v\n", err)
 		return PromResult{}, err
@@ -485,23 +542,39 @@ func choosePromURL() string {
 }
 
 func main() {
+        if queryGatewayMode() {
+                fmt.Println("query-gateway 模式跳过全量 LLDP 查询，请使用 topology.json 按设备采集结果推导 links.json")
+                return
+        }
+
 	promURL := choosePromURL()
 	if promURL == "" {
 		fmt.Println("Prometheus/VictoriaMetrics 当前不可达或无 up 指标，未更新 links-raw.json 与 links.json")
 		return
 	}
 
-	locData, _ := queryPrometheus(promURL, "lldpLocPortId")
-	remData, _ := queryPrometheus(promURL, "lldpRemPortId")
-	sysData, _ := queryPrometheus(promURL, "lldpRemSysName")
-	// 查询对端端口描述，用于在遇到简写端口名时覆盖为完整名称
-	remPortDescData, _ := queryPrometheus(promURL, "lldpRemPortDesc")
-	// 额外查询：本机 sysName 指标（标签 sysName）用于 Source 名称统一
-	hostSysData, _ := queryPrometheus(promURL, "sysName")
-	// 查询接口元数据：ifHighSpeed 标签上通常携带 ifDescr/ifName/ifAlias，
-	// 比 ifIndex 在该集群更稳定，可同时用于源端口和对端别名反查。
-	ifMetaQuery := "ifHighSpeed"
-	ifMetaData, _ := queryPrometheus(promURL, ifMetaQuery)
+        var (
+                locData         PromResult
+                remData         PromResult
+                sysData         PromResult
+                remPortDescData PromResult
+                hostSysData     PromResult
+                ifMetaData      PromResult
+        )
+        var wg sync.WaitGroup
+        runQuery := func(target *PromResult, metric string) {
+                defer wg.Done()
+                result, _ := queryPrometheus(promURL, metric)
+                *target = result
+        }
+        wg.Add(6)
+        go runQuery(&locData, "lldpLocPortId{}")
+        go runQuery(&remData, "lldpRemPortId{}")
+        go runQuery(&sysData, "lldpRemSysName{}")
+        go runQuery(&remPortDescData, "lldpRemPortDesc{}")
+        go runQuery(&hostSysData, "sysName{}")
+        go runQuery(&ifMetaData, "ifHighSpeed{}")
+        wg.Wait()
 
 	debugPrintf("Result counts -> loc: %d, rem: %d, sys: %d, remDesc: %d, hostSys: %d, ifMeta: %d\n",
 		len(locData.Data.Result), len(remData.Data.Result), len(sysData.Data.Result), len(remPortDescData.Data.Result), len(hostSysData.Data.Result), len(ifMetaData.Data.Result))
@@ -737,41 +810,43 @@ func main() {
 			}
 		}
 		debugPrintf("Chosen base: %s, instance=%s (reason=%s) sourceHost=%s localPortNum=%s\n", chosenBase, inst, reason, sourceHost, localPortNum)
-		// 本端端口名：严格优先 ifDescr(baseIP+ifIndex)
-		sourcePort := ifDescrByBase[chosenBase][localPortNum]
-		if sourcePort == "" {
-			// 若 ifDescr 缺失，优先回退到 ifName(baseIP+ifIndex)
-			ifName := ifNameByBase[chosenBase][localPortNum]
-			if ifName != "" {
-				debugPrintf("SourcePort fallback to ifName(base): host=%s base=%s portNum=%s name=%s\n", host, chosenBase, localPortNum, ifName)
-				sourcePort = ifName
-			} else {
-				// 其次回退到本端 lldpLocPortId 解码（同一 base 的实例集合中查找）
-				sp := ""
-				if inst != "" {
-					sp = locByInstance[inst][localPortNum]
-				}
-				if sp == "" {
-					if set, ok := instancesByBase[chosenBase]; ok {
-						for k := range set {
-							if v := locByInstance[k][localPortNum]; v != "" {
-								sp = v
-								break
-							}
-						}
-					}
-				}
-				if sp != "" && isPrintableASCII(sp) {
-					debugPrintf("SourcePort fallback to lldpLocPortId(base): host=%s base=%s portNum=%s name=%s\n", host, chosenBase, localPortNum, sp)
-					sourcePort = sp
-				} else {
-					// 最后退到 Port<Num>
-					fallback := fmt.Sprintf("Port%s", localPortNum)
-					debugPrintf("SourcePort fallback to Port#: host=%s base=%s portNum=%s value=%s\n", host, chosenBase, localPortNum, fallback)
-					sourcePort = fallback
-				}
-			}
-		}
+                // 本端端口名优先使用 lldpLocPortId 解码。该字段直接来自 LLDP 本端口标识，
+                // 在 ifIndex 与 ifDescr 映射有偏移时更接近设备真实邻居端口。
+                sourcePort := ""
+                sp := ""
+                if inst != "" {
+                        sp = locByInstance[inst][localPortNum]
+                }
+                if sp == "" {
+                        if set, ok := instancesByBase[chosenBase]; ok {
+                                for k := range set {
+                                        if v := locByInstance[k][localPortNum]; v != "" {
+                                                sp = v
+                                                break
+                                        }
+                                }
+                        }
+                }
+                if sp != "" && isPrintableASCII(sp) {
+                        debugPrintf("SourcePort resolved via lldpLocPortId(base): host=%s base=%s portNum=%s name=%s\n", host, chosenBase, localPortNum, sp)
+                        sourcePort = normalizePortName(sp)
+                }
+                if sourcePort == "" {
+                        sourcePort = ifDescrByBase[chosenBase][localPortNum]
+                }
+                if sourcePort == "" {
+                        // 若 ifDescr 缺失，再回退到 ifName(baseIP+ifIndex)
+                        ifName := ifNameByBase[chosenBase][localPortNum]
+                        if ifName != "" {
+                                debugPrintf("SourcePort fallback to ifName(base): host=%s base=%s portNum=%s name=%s\n", host, chosenBase, localPortNum, ifName)
+                                sourcePort = ifName
+                        } else {
+                                // 最后退到 Port<Num>
+                                fallback := fmt.Sprintf("Port%s", localPortNum)
+                                debugPrintf("SourcePort fallback to Port#: host=%s base=%s portNum=%s value=%s\n", host, chosenBase, localPortNum, fallback)
+                                sourcePort = fallback
+                        }
+                }
 		targetHost := sysNameMap[host][localPortNum]
 		// 对端端口名必须来自当前 LLDP 邻居记录。不能遍历对端设备所有端口取第一个，
 		// Go map 遍历顺序不稳定，会把链路随机绑定到错误的对端端口。
@@ -868,41 +943,9 @@ func main() {
 	_ = os.WriteFile("links-raw.json", rawBytes, 0644)
 	debugPrintln("Wrote links-raw.json")
 
-	// devices.json 由独立设备同步脚本维护，这里仅读取其结果用于链路过滤。
-	devicesPath := "devices.json"
-	var devices []string
-	existing := make(map[string]bool)
-	if b, err := os.ReadFile(devicesPath); err == nil {
-		if len(b) > 0 {
-			_ = json.Unmarshal(b, &devices)
-			for _, d := range devices {
-				existing[d] = true
-			}
-		}
-	}
-	debugPrintf("Loaded devices.json: %d items\n", len(devices))
-
-	// 使用 devices.json 中维护的设备作为允许集合。
-	// 若文件缺失或为空，则不过滤，避免把 LLDP 原始结果全部丢掉。
-	allowed := existing
-
-	// 过滤链路
-	var filtered []Link
-	for _, l := range links {
-		if len(allowed) == 0 || (allowed[l.Source] && allowed[l.Target]) {
-			filtered = append(filtered, l)
-		}
-	}
-
-	debugPrintf("Filtered links: %d\n", len(filtered))
-
-	// 若过滤后无数据，则只打印提醒信息，不更新 links.json
-	if len(filtered) == 0 {
-		fmt.Println("过滤后无数据，未更新 links.json")
-	} else {
-		// 写入过滤结果到 links.json
-		filteredBytes, _ := json.MarshalIndent(filtered, "", "  ")
-		_ = os.WriteFile("links.json", filteredBytes, 0644)
-		debugPrintln("Wrote links.json")
-	}
+	// links.json 保留所有成功解析出的邻居链路。
+	// 主拓扑图仍只会展示已知节点之间的链路，但端口详情需要完整对端信息。
+	filteredBytes, _ := json.MarshalIndent(links, "", "  ")
+	_ = os.WriteFile("links.json", filteredBytes, 0644)
+	debugPrintf("Wrote links.json with all links: %d\n", len(links))
 }

@@ -32,7 +32,9 @@
     <script>
       const btn = document.getElementById('loginBtn');
       const msg = document.getElementById('msg');
-      const nextUrl = new URLSearchParams(window.location.search).get('next') || '/topology/config.html';
+      const params = new URLSearchParams(window.location.search);
+      const cs = params.get('cs') || '';
+      const nextUrl = params.get('next') || (cs ? `/topology/config.html?cs=${encodeURIComponent(cs)}` : '/topology/config.html');
       btn.addEventListener('click', async () => {
         msg.textContent = '';
         const username = document.getElementById('username').value.trim();

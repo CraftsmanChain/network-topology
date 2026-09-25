@@ -13,10 +13,25 @@
 
 import json
 import os
+import re
+import time
 from typing import Dict, List
+import gzip
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from urllib.parse import urlparse
+import ssl
+from atomic_json import write_json_atomic
 
-import requests
+try:
+    import requests  # type: ignore
+except Exception:
+    requests = None
+else:
+    try:
+        import urllib3  # type: ignore
+    except Exception:
+        urllib3 = None
 
 
 DEFAULT_PROM_URLS = [
@@ -34,6 +49,7 @@ UP_QUERIES = [
     'up{job=~"snmp_.*",device_type="网络设备"}',
     'up{job="snmp_exporter"}',
     'up{job=~"snmp_.*"}',
+    'up',
 ]
 ACTIVE_UP_QUERY = ""
 TARGET_POOL_PREFIX = "snmp_exporter-"
@@ -41,6 +57,140 @@ TARGET_POOL_PREFIX = "snmp_exporter-"
 DEVICES_JSON = "devices.json"
 DEVICES_META_JSON = "devices-meta.json"
 TOPOLOGY_JSON = "topology.json"
+REQUESTS_SESSION = None
+
+
+def env_bool(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def request_headers() -> Dict[str, str]:
+    headers: Dict[str, str] = {"Accept-Encoding": "gzip"}
+    token = os.environ.get("PROM_BEARER_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    extra = os.environ.get("PROM_HEADERS_JSON", "").strip()
+    if extra:
+        try:
+            parsed = json.loads(extra)
+            if isinstance(parsed, dict):
+                for key, value in parsed.items():
+                    if key and value is not None:
+                        headers[str(key)] = str(value)
+        except Exception as exc:
+            print(f"[WARNING] 解析 PROM_HEADERS_JSON 失败: {exc}")
+    return headers
+
+
+def request_verify():
+    return not env_bool("PROM_SKIP_TLS_VERIFY")
+
+
+def request_timeout() -> int:
+    raw = os.environ.get("PROM_REQUEST_TIMEOUT_SEC", "").strip()
+    try:
+        value = int(raw)
+        if value > 0:
+            return value
+    except Exception:
+        pass
+    direct = (os.environ.get("PROM_QUERY_URL", "").strip() or os.environ.get("PROM_URL", "").strip())
+    if "/query-gateway/" in direct:
+        return 30
+    return 10
+
+
+def request_retries() -> int:
+    raw = os.environ.get("PROM_REQUEST_RETRIES", "").strip()
+    try:
+        value = int(raw)
+        if value >= 1:
+            return value
+    except Exception:
+        pass
+    return 4 if "/query-gateway/" in (os.environ.get("PROM_QUERY_URL", "").strip() or os.environ.get("PROM_URL", "").strip()) else 3
+
+
+def request_retry_backoff_sec() -> float:
+    raw = os.environ.get("PROM_REQUEST_RETRY_BACKOFF_SEC", "").strip()
+    try:
+        value = float(raw)
+        if value > 0:
+            return value
+    except Exception:
+        pass
+    return 1.5 if "/query-gateway/" in (os.environ.get("PROM_QUERY_URL", "").strip() or os.environ.get("PROM_URL", "").strip()) else 1.0
+
+
+def query_gateway_mode() -> bool:
+    direct = (os.environ.get("PROM_QUERY_URL", "").strip() or os.environ.get("PROM_URL", "").strip())
+    return "/query-gateway/" in direct
+
+
+def query_error_text(exc: Exception) -> str:
+    detail = str(exc)
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            payload = response.json()
+            detail += f"; {payload.get('errorType', '')}: {payload.get('error', '')}"
+        except Exception:
+            pass
+    return detail[:600]
+
+
+def response_too_large_error(exc: Exception) -> bool:
+    text = query_error_text(exc).lower()
+    return "exceeds 33554432" in text or "response exceeds" in text
+
+
+def requests_session():
+    global REQUESTS_SESSION
+    if requests is None:
+        return None
+    if REQUESTS_SESSION is None:
+        REQUESTS_SESSION = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=16)  # type: ignore[attr-defined]
+        REQUESTS_SESSION.mount("http://", adapter)
+        REQUESTS_SESSION.mount("https://", adapter)
+    return REQUESTS_SESSION
+
+
+def http_get(url: str, **kwargs):
+    headers = {**request_headers(), **(kwargs.pop("headers", {}) or {})}
+    if requests is not None:
+        if not request_verify() and 'urllib3' in globals() and urllib3 is not None:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        kwargs.setdefault("timeout", request_timeout())
+        session = requests_session()
+        return session.get(url, headers=headers, verify=request_verify(), **kwargs)  # type: ignore[union-attr]
+    params = kwargs.pop("params", None)
+    timeout = kwargs.pop("timeout", request_timeout())
+    if params:
+        query = urlencode(params)
+        joiner = "&" if "?" in url else "?"
+        url = f"{url}{joiner}{query}"
+    request = Request(url, headers=headers, method="GET")
+    context = None
+    if not request_verify():
+        context = ssl._create_unverified_context()
+    with urlopen(request, timeout=timeout, context=context) as response:
+        body = response.read()
+
+    class CompatResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            payload = self._payload
+            if payload[:2] == b"\x1f\x8b":
+                payload = gzip.decompress(payload)
+            return json.loads(payload.decode("utf-8"))
+
+    return CompatResponse(body)
 
 
 def candidate_prom_urls():
@@ -57,6 +207,8 @@ def to_targets_url(value: str) -> str:
     value = (value or "").strip()
     if not value:
         return ""
+    if "/query-gateway/" in value:
+        return ""
     if value.rstrip("/").endswith("/api/v1/targets"):
         return value
 
@@ -68,6 +220,14 @@ def to_targets_url(value: str) -> str:
 
 
 def candidate_targets_urls():
+    direct_query_url = os.environ.get("PROM_QUERY_URL", "").strip() or os.environ.get("PROM_URL", "").strip()
+    if "/query-gateway/" in direct_query_url:
+        explicit = []
+        for key in ("VM_TARGETS_URL", "TARGETS_URL"):
+            value = to_targets_url(os.environ.get(key, ""))
+            if value:
+                explicit.append(value)
+        return explicit
     seen = set()
     urls: List[str] = []
 
@@ -91,37 +251,71 @@ def candidate_targets_urls():
     return urls
 
 
-def query_prometheus(query: str):
+def query_prometheus_result(query: str):
     urls = [ACTIVE_PROM_URL] if ACTIVE_PROM_URL else candidate_prom_urls()
+    retry_count = request_retries()
     for prom_url in urls:
         if not prom_url:
             continue
-        try:
-            r = requests.get(prom_url, params={"query": query}, timeout=10)
-            r.raise_for_status()
-            data = r.json()
-            return data.get("data", {}).get("result", [])
-        except Exception as e:
-            print(f"[ERROR] Prometheus/VictoriaMetrics 查询失败 {prom_url}: {e}")
-    return []
+        last_error = None
+        for attempt in range(1, retry_count + 1):
+            try:
+                r = http_get(prom_url, params={"query": query}, timeout=request_timeout())
+                r.raise_for_status()
+                data = r.json()
+                if data.get("status") != "success" or not isinstance(data.get("data", {}).get("result"), list):
+                    raise ValueError(f"监控查询返回无效结果: {data.get('error') or data.get('status')}")
+                return data["data"]["result"], True
+            except Exception as e:
+                last_error = e
+                if response_too_large_error(e):
+                    print(f"[ERROR] 查询结果超过 query-gateway 响应上限，需拆分查询: {prom_url}: {query_error_text(e)}")
+                    break
+                if attempt < retry_count:
+                    print(f"[WARNING] 查询失败，准备重试 {attempt}/{retry_count - 1}: {prom_url}: {query_error_text(e)}")
+                    time.sleep(request_retry_backoff_sec() * attempt)
+                else:
+                    print(f"[ERROR] Prometheus/VictoriaMetrics 查询失败 {prom_url}: {query_error_text(e)}")
+        if last_error is None:
+            print(f"[ERROR] Prometheus/VictoriaMetrics 查询失败 {prom_url}: 未知错误")
+    return [], False
+
+
+def query_prometheus(query: str):
+    data, _ = query_prometheus_result(query)
+    return data
 
 
 def choose_prom_url() -> str:
     global ACTIVE_PROM_URL, ACTIVE_UP_QUERY
+    probe_queries = UP_QUERIES
+    if query_gateway_mode():
+        # query-gateway has a 32MB response limit. Avoid the final broad `up`
+        # probe because it may include unrelated targets across the datasource.
+        probe_queries = [query for query in UP_QUERIES if query != "up"]
     for prom_url in candidate_prom_urls():
-        for probe_query in UP_QUERIES:
-            try:
-                r = requests.get(prom_url, params={"query": probe_query}, timeout=10)
-                r.raise_for_status()
-                data = r.json()
-                if data.get("data", {}).get("result", []):
-                    ACTIVE_PROM_URL = prom_url
-                    ACTIVE_UP_QUERY = probe_query
-                    print(f"[INFO] 使用监控查询地址: {prom_url}")
-                    print(f"[INFO] 使用设备发现查询: {probe_query}")
-                    return prom_url
-            except Exception as e:
-                print(f"[ERROR] Prometheus/VictoriaMetrics 预检失败 {prom_url}: {e}")
+        for probe_query in probe_queries:
+            for attempt in range(1, request_retries() + 1):
+                try:
+                    r = http_get(prom_url, params={"query": probe_query}, timeout=request_timeout())
+                    r.raise_for_status()
+                    data = r.json()
+                    if data.get("data", {}).get("result", []):
+                        ACTIVE_PROM_URL = prom_url
+                        ACTIVE_UP_QUERY = probe_query
+                        print(f"[INFO] 使用监控查询地址: {prom_url}")
+                        print(f"[INFO] 使用设备发现查询: {probe_query}")
+                        return prom_url
+                    break
+                except Exception as e:
+                    if response_too_large_error(e):
+                        print(f"[ERROR] 监控查询地址预检结果超过 query-gateway 响应上限，跳过该探测查询: {probe_query}: {e}")
+                        break
+                    if attempt < request_retries():
+                        print(f"[WARNING] 监控查询地址预检失败，准备重试 {attempt}/{request_retries() - 1}: {prom_url}: {e}")
+                        time.sleep(request_retry_backoff_sec() * attempt)
+                    else:
+                        print(f"[ERROR] Prometheus/VictoriaMetrics 预检失败 {prom_url}: {e}")
     ACTIVE_PROM_URL = ""
     ACTIVE_UP_QUERY = ""
     return ""
@@ -132,17 +326,23 @@ def choose_targets_url() -> str:
     for targets_url in candidate_targets_urls():
         if not targets_url:
             continue
-        try:
-            r = requests.get(targets_url, timeout=10)
-            r.raise_for_status()
-            data = r.json()
-            active_targets = data.get("data", {}).get("activeTargets", [])
-            if any((item.get("scrapePool") or "").startswith(TARGET_POOL_PREFIX) for item in active_targets):
-                ACTIVE_TARGETS_URL = targets_url
-                print(f"[INFO] 使用 vmagent targets 地址: {targets_url}")
-                return targets_url
-        except Exception as e:
-            print(f"[ERROR] vmagent targets 预检失败 {targets_url}: {e}")
+        for attempt in range(1, request_retries() + 1):
+            try:
+                r = http_get(targets_url, timeout=request_timeout())
+                r.raise_for_status()
+                data = r.json()
+                active_targets = data.get("data", {}).get("activeTargets", [])
+                if any((item.get("scrapePool") or "").startswith(TARGET_POOL_PREFIX) for item in active_targets):
+                    ACTIVE_TARGETS_URL = targets_url
+                    print(f"[INFO] 使用 vmagent targets 地址: {targets_url}")
+                    return targets_url
+                break
+            except Exception as e:
+                if attempt < request_retries():
+                    print(f"[WARNING] vmagent targets 预检失败，准备重试 {attempt}/{request_retries() - 1}: {targets_url}: {e}")
+                    time.sleep(request_retry_backoff_sec() * attempt)
+                else:
+                    print(f"[ERROR] vmagent targets 预检失败 {targets_url}: {e}")
     ACTIVE_TARGETS_URL = ""
     return ""
 
@@ -188,6 +388,9 @@ def historical_name_map() -> Dict[str, str]:
 
 
 def sysname_map() -> Dict[str, str]:
+    if query_gateway_mode():
+        print("[INFO] query-gateway 模式跳过全量 sysName 查询，改用历史名称与按设备 sysName 查询")
+        return {}
     result = {}
     for item in query_prometheus("sysName"):
         metric = item.get("metric", {})
@@ -196,6 +399,24 @@ def sysname_map() -> Dict[str, str]:
         if ip and name:
             result[ip] = name
     return result
+
+
+def is_ip_like(value: str) -> bool:
+    return bool(re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", value or ""))
+
+
+def query_sysname_for_ip(ip: str) -> str:
+    if not ip or not ACTIVE_PROM_URL:
+        return ""
+    for query in (f'sysName{{instance="{ip}"}}', f'sysName{{snmp_target="{ip}"}}'):
+        items, ok = query_prometheus_result(query)
+        if not ok:
+            continue
+        for item in items:
+            name = (item.get("metric", {}).get("sysName") or "").strip()
+            if name:
+                return name
+    return ""
 
 
 def choose_device_id(ip: str, metric: Dict, sysnames: Dict[str, str], history: Dict[str, str]) -> str:
@@ -212,9 +433,19 @@ def build_target_inventory(sysnames: Dict[str, str], history: Dict[str, str]) ->
         return []
 
     try:
-        r = requests.get(ACTIVE_TARGETS_URL, timeout=15)
-        r.raise_for_status()
-        active_targets = r.json().get("data", {}).get("activeTargets", [])
+        active_targets = []
+        for attempt in range(1, request_retries() + 1):
+            try:
+                r = http_get(ACTIVE_TARGETS_URL, timeout=max(15, request_timeout()))
+                r.raise_for_status()
+                active_targets = r.json().get("data", {}).get("activeTargets", [])
+                break
+            except Exception as e:
+                if attempt < request_retries():
+                    print(f"[WARNING] 读取 vmagent targets 失败，准备重试 {attempt}/{request_retries() - 1}: {ACTIVE_TARGETS_URL}: {e}")
+                    time.sleep(request_retry_backoff_sec() * attempt)
+                else:
+                    raise
     except Exception as e:
         print(f"[ERROR] 读取 vmagent targets 失败 {ACTIVE_TARGETS_URL}: {e}")
         return []
@@ -234,6 +465,10 @@ def build_target_inventory(sysnames: Dict[str, str], history: Dict[str, str]) ->
             continue
 
         health = (item.get("health") or "").strip().lower()
+        if query_gateway_mode() and ip not in sysnames and ip not in history and not (labels.get("device_name") or "").strip():
+            name = query_sysname_for_ip(ip)
+            if name:
+                sysnames[ip] = name
         current_id = choose_device_id(ip, labels, sysnames, history)
         existing = devices_by_ip.get(ip)
         record = {
@@ -290,6 +525,10 @@ def build_metric_inventory(sysnames: Dict[str, str], history: Dict[str, str]) ->
         except Exception:
             is_up = False
 
+        if query_gateway_mode() and ip not in sysnames and ip not in history and not (metric.get("device_name") or "").strip():
+            name = query_sysname_for_ip(ip)
+            if name:
+                sysnames[ip] = name
         current_id = choose_device_id(ip, metric, sysnames, history)
         existing = devices_by_ip.get(ip)
         if existing and existing.get("id") and not current_id:
@@ -365,10 +604,8 @@ def main():
         return 1
 
     names = [item["id"] for item in devices if item.get("id")]
-    with open(DEVICES_JSON, "w", encoding="utf-8") as f:
-        json.dump(names, f, indent=2, ensure_ascii=False)
-    with open(DEVICES_META_JSON, "w", encoding="utf-8") as f:
-        json.dump(devices, f, indent=2, ensure_ascii=False)
+    write_json_atomic(DEVICES_JSON, names)
+    write_json_atomic(DEVICES_META_JSON, devices)
 
     down_count = sum(1 for item in devices if item.get("status") != 0)
     print(f"[INFO] 已更新 devices.json: total={len(devices)}, down={down_count}")

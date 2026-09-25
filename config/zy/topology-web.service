@@ -1,0 +1,17 @@
+[Unit]
+Description=Topology Web
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/ops/web/topology
+Environment=PORT=8181
+Environment=WEB_ROOT=/ops/web/topology
+Environment=CONFIG_DIR=/ops/web/topology/config/zy
+Environment=DATA_ROOT=/ops/web/topology/runtime-data/zy
+ExecStart=/ops/web/topology/topology-web
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

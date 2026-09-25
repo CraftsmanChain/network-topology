@@ -35,7 +35,7 @@
     <header>
       <div class="title">配置中心</div>
       <div class="actions">
-        <a href="/topology/">架构视图</a>
+        <a href="/topology/" id="topology-link">架构视图</a>
         <a href="/topology/" id="logout-link">退出登录</a>
       </div>
     </header>
@@ -153,6 +153,22 @@
       let token = localStorage.getItem('token');
       const apiBase = '/topology/api';
 
+      function currentClusterCode() {
+        return new URLSearchParams(window.location.search).get('cs') || '';
+      }
+
+      function withClusterContext(path) {
+        const cs = currentClusterCode();
+        const [base, hash = ''] = String(path || '').split('#');
+        const qIndex = base.indexOf('?');
+        const rawPath = qIndex >= 0 ? base.slice(0, qIndex) : base;
+        const rawQuery = qIndex >= 0 ? base.slice(qIndex + 1) : '';
+        const params = new URLSearchParams(rawQuery);
+        if (cs) params.set('cs', cs);
+        const query = params.toString();
+        return rawPath + (query ? `?${query}` : '') + (hash ? `#${hash}` : '');
+      }
+
       function getAuthHeaders() {
         return token ? { Authorization: 'Bearer ' + token } : {};
       }
@@ -167,7 +183,7 @@
       }
 
       function redirectToLogin() {
-        const next = encodeURIComponent('/topology/config.html');
+        const next = encodeURIComponent(withClusterContext('/topology/config.html'));
         window.location.href = `/topology/login.html?next=${next}`;
       }
 
@@ -176,7 +192,7 @@
           redirectToLogin();
           return false;
         }
-        const resp = await fetch(`${apiBase}/auth/check`, { headers: { ...getAuthHeaders() } }).catch(() => null);
+        const resp = await fetch(withClusterContext(`${apiBase}/auth/check`), { headers: { ...getAuthHeaders() } }).catch(() => null);
         if (!resp || !resp.ok) {
           clearAuth();
           redirectToLogin();
@@ -186,14 +202,14 @@
       }
 
       async function fetchJSON(url) {
-        const resp = await fetch(url, { headers: { ...getAuthHeaders() } });
+        const resp = await fetch(withClusterContext(url), { headers: { ...getAuthHeaders() } });
         if (resp.status === 404) return {};
         const data = await resp.text();
         try { return JSON.parse(data); } catch { return {}; }
       }
 
       async function putConfig(name, obj) {
-        const resp = await fetch(`${apiBase}/config/${name}`, {
+        const resp = await fetch(withClusterContext(`${apiBase}/config/${name}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify(obj)
@@ -210,7 +226,7 @@
 
       async function loadHistory(name, container) {
         container.innerHTML = '';
-        const resp = await fetch(`${apiBase}/history/${name}`, { headers: { ...getAuthHeaders() } });
+        const resp = await fetch(withClusterContext(`${apiBase}/history/${name}`), { headers: { ...getAuthHeaders() } });
         if (resp.status === 401) {
           clearAuth();
           redirectToLogin();
@@ -231,7 +247,7 @@
           btn.addEventListener('click', async () => {
             const ok = confirm(`回滚到 ${entry.timestamp} ？`);
             if (!ok) return;
-            const r = await fetch(`${apiBase}/history/${name}/rollback`, {
+            const r = await fetch(withClusterContext(`${apiBase}/history/${name}/rollback`), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
               body: JSON.stringify({ timestamp: entry.timestamp })
@@ -257,7 +273,7 @@
         msg.textContent = '';
         msg.className = 'msg';
         try {
-          const resp = await fetch(`${apiBase}/history/${name}/backup`, { method: 'POST', headers: { ...getAuthHeaders() } });
+          const resp = await fetch(withClusterContext(`${apiBase}/history/${name}/backup`), { method: 'POST', headers: { ...getAuthHeaders() } });
           const data = await resp.json().catch(() => ({}));
           if (resp.status === 401) {
             clearAuth();
@@ -290,7 +306,7 @@
         msg.textContent = '';
         msg.className = 'msg';
         try {
-          const resp = await fetch('/topology/api/config/topology_config', { headers: { ...getAuthHeaders() } });
+          const resp = await fetch(withClusterContext('/topology/api/config/topology_config'), { headers: { ...getAuthHeaders() } });
           if (!resp.ok) {
             msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载全局配置' : ('无法加载全局配置（HTTP ' + resp.status + '）');
             return;
@@ -459,7 +475,7 @@
         msg.textContent = '';
         msg.className = 'msg';
         try {
-          const resp = await fetch('/topology/api/config/group_rules', { headers: { ...getAuthHeaders() } });
+          const resp = await fetch(withClusterContext('/topology/api/config/group_rules'), { headers: { ...getAuthHeaders() } });
           if (!resp.ok) {
             msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载组配置' : ('无法加载组配置（HTTP ' + resp.status + '）');
             return;
@@ -494,7 +510,7 @@
         msg.textContent = '';
         msg.className = 'msg';
         try {
-          const resp = await fetch('/topology/api/config/architecture', { headers: { ...getAuthHeaders() } });
+          const resp = await fetch(withClusterContext('/topology/api/config/architecture'), { headers: { ...getAuthHeaders() } });
           if (!resp.ok) {
             msg.textContent = resp.status === 401 ? '未登录或令牌失效，无法加载架构配置' : ('无法加载架构配置（HTTP ' + resp.status + '）');
             return;
@@ -580,6 +596,8 @@
       });
 
       (async function init() {
+        document.getElementById('topology-link').href = withClusterContext('/topology/');
+        document.getElementById('logout-link').href = withClusterContext('/topology/');
         if (!(await ensureAuthenticated())) return;
         await refreshGlobalConfig();
         await refreshGroupsUI();

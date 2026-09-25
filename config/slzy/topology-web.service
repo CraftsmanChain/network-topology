@@ -6,10 +6,9 @@ After=network-online.target
 Type=simple
 WorkingDirectory=/ops/web/topology/server
 Environment=PORT=8181
-Environment=TOPOLOGY_MODE=single
 Environment=WEB_ROOT=/ops/web/topology
-Environment=CONFIG_DIR=/ops/web/topology/config
-Environment=DATA_ROOT=/ops/web/topology
+Environment=CONFIG_DIR=/ops/web/topology/config/slzy
+Environment=DATA_ROOT=/ops/web/topology/runtime-data/slzy
 ExecStart=/ops/web/topology/server/topology-web
 Restart=always
 RestartSec=3

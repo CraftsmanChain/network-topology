@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "backgroundColor": "#1f2637",
+  "sidebar": {
+    "visible": true,
+    "sections": ["overview", "filters", "search", "alerts"]
+  },
+  "layout": {
+    "mode": "grid",
+    "forceStrength": 0.3,
+    "gridCell": 120,
+    "compact": true
+  },
+  "default_icons": {
+    "group": "icons/sw.png",
+    "device": "icons/sigle-sw.png",
+    "device_bad": "icons/sigle-sw-bad.png",
+    "group_bad": "icons/sw-bad.png",
+    "core_switch": "icons/core.png",
+    "core_switch_bad": "icons/core-bad.png",
+    "firewall": "icons/firewall.png",
+    "firewall_bad": "icons/core-bad.png",
+    "firewall_main": "icons/firewall.png",
+    "firewall_backup": "icons/firewall.png"
+  },
+  "features": {
+    "line_monitors": {
+      "enabled": false,
+      "names": [],
+      "auto_groups": {
+        "enabled": false
+      }
+    }
+  },
+  "refresh": {
+    "devices_ms": 5000,
+    "links_ms": 3000
+  },
+  "dynamic_links": {
+    "debounce_ms": 500,
+    "grace_ms": 3000
+  },
+  "display": {
+    "showPorts": false,
+    "showLabels": "auto"
+  },
+  "aliases": {
+    "group:SLZY-MGT-AGG": "MGT 汇聚",
+    "group:SLZY-MGT-TOR": "MGT 接入",
+    "group:SLZY-OOB-AGG": "OOB 汇聚",
+    "group:SLZY-OOB-TOR": "OOB 接入",
+    "group:SLZY-NETOOB-TOR": "NETOOB 接入",
+    "group:SLZY-PUBLIC-AGG": "公网汇聚",
+    "group:SLZY-PUBLIC-TOR": "公网接入",
+    "group:SLZY-GC-AGG": "GC 汇聚",
+    "group:SLZY-GC-TOR": "GC 接入",
+    "group:SLZY-GC-OOB-TOR": "GC OOB 接入",
+    "group:SLZY-GC-NETOOB-TOR": "GC NETOOB 接入",
+    "group:SLZY-OBS-AGG": "对象存储汇聚",
+    "group:SLZY-OBS-SPINE": "对象存储 Spine",
+    "group:SLZY-OBS-LEAF": "对象存储 Leaf",
+    "group:SLZY-OBS-TOR": "对象存储 TOR",
+    "group:SLZY-STOR-SPINE": "Stor Spine"
+  },
+  "title": "算力小镇-智元集群网络拓扑",
+  "types": {},
+  "visibility": {
+    "devices": {},
+    "groups": {}
+  },
+  "profiles": {},
+  "home_topology": "main"
+}

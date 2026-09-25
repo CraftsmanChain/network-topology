@@ -148,6 +148,9 @@
       height: 100%;
       min-height: 760px;
     }
+    .zone-text-layer {
+      pointer-events: none;
+    }
     .side {
       border-left: 1px solid var(--line);
       background: #0f172a;
@@ -582,7 +585,7 @@
       <div class="actions">
         <label class="toggle"><input type="checkbox" id="toggle-meth" />显示管理接口</label>
         <button id="reload">刷新</button>
-        <a href="/topology/config.html">管理后台</a>
+        <a id="admin-link" href="/topology/config.html">管理后台</a>
       </div>
     </header>
     <main class="stage">
@@ -620,6 +623,15 @@
         <div class="legend-row"><span>10G</span><i class="legend-line" style="background:#64748b"></i></div>
         <div class="legend-row"><span>DOWN</span><i class="legend-line" style="background:#ef4444;border-top:0"></i></div>
       </div>
+      <div id="line-monitor-section" class="section" style="display:none">
+        <div class="detail-title">
+          <b id="line-monitor-title">专线监控</b>
+          <span id="line-monitor-count" class="badge">0</span>
+        </div>
+        <div id="line-monitor-legend" class="list">
+          <div class="info-item">暂无监控项</div>
+        </div>
+      </div>
       <div class="section">
         <h2>详情</h2>
         <div id="detail" class="detail">点击节点、链路或上方统计查看详情。</div>
@@ -640,6 +652,9 @@
       baseConfig: {},
       topology: { nodes: [] },
       links: [],
+      allLinks: [],
+      lineMonitorData: { lines: [], last_updated: null },
+      lineMonitorGroups: [],
       faultIndex: { rawDown: new Set(), nodeFaultLinks: new Set(), portFaults: new Map(), downNodeIds: new Set() },
       showMeth: false,
       displayNodes: [],
@@ -648,9 +663,16 @@
       hiddenMethLinks: 0,
       lastLoadedAt: null,
       dataUpdatedAt: null,
+      topologyUpdatedAt: null,
+      linksUpdatedAt: null,
+      monitorUpdatedAt: null,
+      runtimeStatus: { datasets: {}, checked_at: null },
+      dataSourceError: false,
       sidebarCollapsed: false,
       sidebarAutoOpened: false,
-      detailHistory: []
+      detailHistory: [],
+      loadAllInFlight: null,
+      lineMonitorRefreshInFlight: null
     };
     const SYNTHETIC_GROUPS = {
       mgmt: '__fallback-mgmt-devices__',
@@ -681,6 +703,7 @@
     let activeZones = [];
     let activeDetail = { type: 'overview' };
     let selectedDisplayNodeId = '';
+    let selectedLinkId = '';
     let focusLinkLayer = null;
 
     function $(id) { return document.getElementById(id); }
@@ -690,10 +713,32 @@
       })[ch]);
     }
 
+    function currentClusterCode() {
+      return new URLSearchParams(location.search).get('cs') || '';
+    }
+
+    function withClusterContext(path) {
+      const cs = currentClusterCode();
+      const [base, hash = ''] = String(path || '').split('#');
+      const qIndex = base.indexOf('?');
+      const rawPath = qIndex >= 0 ? base.slice(0, qIndex) : base;
+      const rawQuery = qIndex >= 0 ? base.slice(qIndex + 1) : '';
+      const params = new URLSearchParams(rawQuery);
+      if (cs) params.set('cs', cs);
+      params.set('t', String(Date.now()));
+      const query = params.toString();
+      return rawPath + (query ? `?${query}` : '') + (hash ? `#${hash}` : '');
+    }
+
+    function normalizeLinksPayload(payload) {
+      if (Array.isArray(payload)) return payload;
+      if (payload && Array.isArray(payload.lines)) return payload.lines;
+      return [];
+    }
+
     async function fetchJSON(path, fallback) {
       try {
-        const sep = path.includes('?') ? '&' : '?';
-        const res = await fetch(path + sep + 't=' + Date.now(), { cache: 'no-store' });
+        const res = await fetch(withClusterContext(path), { cache: 'no-store' });
         if (!res.ok) return fallback;
         return await res.json();
       } catch (e) {
@@ -703,8 +748,7 @@
 
     async function fetchJSONWithMeta(path, fallback) {
       try {
-        const sep = path.includes('?') ? '&' : '?';
-        const res = await fetch(path + sep + 't=' + Date.now(), { cache: 'no-store' });
+        const res = await fetch(withClusterContext(path), { cache: 'no-store' });
         if (!res.ok) return { data: fallback, updatedAt: null };
         const lastModified = res.headers.get('Last-Modified');
         const updatedAt = lastModified ? new Date(lastModified) : null;
@@ -722,6 +766,96 @@
 
     function latestDate(...dates) {
       return dates.filter(Boolean).sort((a, b) => b.getTime() - a.getTime())[0] || null;
+    }
+
+    function parseDateValue(value) {
+      if (!value) return null;
+      const date = value instanceof Date ? value : new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function datasetIsStale(dataset) {
+      if (!dataset || dataset.required === false) return false;
+      const updatedAt = parseDateValue(dataset.updated_at || dataset.last_success_at);
+      const thresholdMs = Math.max(0, Number(dataset.error_after_sec) || 0) * 1000;
+      if (!updatedAt) return true;
+      if (thresholdMs <= 0) return false;
+      return (Date.now() - updatedAt.getTime()) > thresholdMs;
+    }
+
+    function computeDataSourceError(status) {
+      const datasets = (status && status.datasets) || {};
+      return Object.values(datasets).some(dataset => {
+        return datasetIsStale(dataset);
+      });
+    }
+
+    function datasetErrorWithLoadedTime(dataset, loadedAt) {
+      if (!dataset || dataset.required === false) return false;
+      if (!loadedAt) return true;
+      const thresholdMs = Math.max(0, Number(dataset.error_after_sec) || 0) * 1000;
+      if (thresholdMs <= 0) return false;
+      return (Date.now() - loadedAt.getTime()) > thresholdMs;
+    }
+
+    function computeLoadedDataSourceError(runtimeStatus, loaded) {
+      const datasets = (runtimeStatus && runtimeStatus.datasets) || {};
+      const topologyError = datasetErrorWithLoadedTime(datasets.topology || { required: true }, loaded.topologyUpdatedAt);
+      const linksError = loaded.linksSatisfied
+        ? false
+        : datasetErrorWithLoadedTime(datasets.links || { required: true }, loaded.linksUpdatedAt);
+      const monitorError = datasetErrorWithLoadedTime(datasets.prometheus || { required: false }, loaded.monitorUpdatedAt);
+      return topologyError || linksError || monitorError;
+    }
+
+    function applyRuntimeStatus(status) {
+      state.runtimeStatus = status && typeof status === 'object'
+        ? { datasets: status.datasets || {}, checked_at: status.checked_at || null }
+        : { datasets: {}, checked_at: null };
+      state.dataSourceError = computeDataSourceError(state.runtimeStatus);
+    }
+
+    function lineMonitorConfig() {
+      return ((((state.config || {}).features || {}).line_monitors) || {});
+    }
+
+    function lineMonitorEnabled() {
+      return lineMonitorConfig().enabled === true;
+    }
+
+    function syntheticDevicesConfig() {
+      return toArray((((state.config || {}).features || {}).synthetic_devices || {}).devices);
+    }
+
+    function portStateOverrideRules() {
+      return toArray((((state.config || {}).features || {}).port_state_overrides || {}).rules);
+    }
+
+    function normalizePortList(value) {
+      if (Array.isArray(value)) {
+        return value.map(item => String(item || '').trim()).filter(Boolean);
+      }
+      if (typeof value === 'string') {
+        return value.split('|').map(item => item.trim()).filter(Boolean);
+      }
+      return [];
+    }
+
+    function statusValueToUp(value) {
+      if (value == null || value === '') return null;
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'number') return value === 0;
+      const text = String(value).trim().toLowerCase();
+      if (!text) return null;
+      if (['up', 'ok', 'normal', '0', 'true'].includes(text)) return true;
+      if (['down', 'alarm', 'critical', '1', 'false'].includes(text)) return false;
+      return null;
+    }
+
+    function statusValueToCode(value, fallback) {
+      const up = statusValueToUp(value);
+      if (up == null) return typeof fallback === 'number' ? fallback : 0;
+      return up ? 0 : 1;
     }
 
     function mergeProfile(base) {
@@ -777,13 +911,36 @@
       });
     }
 
-    function clearDetailPanel() {
+    function renderOverviewPanel() {
+      const groups = state.lineMonitorGroups || [];
+      const monitorItems = groups.flatMap(group => group.items || []);
+      const downNodeIds = (state.faultIndex && state.faultIndex.downNodeIds) || new Set();
+      const downLinks = state.displayLinks.filter(link => link.down).length;
+      const zoneRows = zoneDefinitions.map(zone => {
+        const count = state.displayNodes.filter(node => node.zone === zone.id).length;
+        return `<div class="list-row"><div><strong>${esc(zone.title)}</strong><small>${esc(zone.subtitle || '-')}</small></div><span class="badge">${count}</span></div>`;
+      }).join('');
       activeDetail = { type: 'overview' };
       selectedDisplayNodeId = '';
+      selectedLinkId = '';
       applySelectionHighlight();
       setActiveMetric('');
-      $('detail').textContent = '点击节点、链路或上方统计查看详情。';
+      $('detail').innerHTML = `<div class="detail-title"><b>集群信息</b><span class="badge">${state.displayNodes.length}</span></div>
+        <div class="info-grid">
+          <div class="info-item"><span>展示节点</span><b>${state.displayNodes.length}</b></div>
+          <div class="info-item"><span>聚合链路</span><b>${state.displayLinks.length}</b></div>
+          <div class="info-item"><span>故障设备</span><b>${downNodeIds.size}</b></div>
+          <div class="info-item"><span>故障链路</span><b>${downLinks}</b></div>
+          <div class="info-item"><span>专线监控</span><b>${monitorItems.length}</b></div>
+          <div class="info-item"><span>更新时间</span><b>${esc(formatDateTime(state.dataUpdatedAt) || '-')}</b></div>
+          <div class="info-item"><span>数据源异常</span><b>${state.dataSourceError ? '是' : '否'}</b></div>
+        </div>
+        <div class="list">${zoneRows || '<div class="info-item">暂无分区信息</div>'}</div>`;
       restoreAutoHiddenSidebar();
+    }
+
+    function clearDetailPanel() {
+      renderOverviewPanel();
     }
 
     function goBackDetail() {
@@ -820,6 +977,14 @@
         showMetric(detail.metric, { recordHistory: false });
         return;
       }
+      if (detail.type === 'line-monitor-group') {
+        showLineMonitorGroupDetail(detail.id, { recordHistory: false });
+        return;
+      }
+      if (detail.type === 'line-monitor-item') {
+        showLineMonitorItemDetail(detail.groupId, detail.id, { recordHistory: false });
+        return;
+      }
       clearDetailPanel();
     }
 
@@ -831,11 +996,19 @@
       const name = normalizeName(value);
       if (!name) return false;
       return /^meth/i.test(name)
+        || /^m-gigabitethernet/i.test(name)
+        || /^mgmt(?:\s|$)/i.test(name)
         || /^mgmt [0-9]+$/i.test(name)
         || /^eth0$/i.test(name)
         || /^ethernet0$/i.test(name)
         || /^management port$/i.test(name)
         || /(loopback|null|tunnel|vlan)/i.test(name);
+    }
+
+    function isManagementNodeName(value) {
+      const name = normalizeName(value);
+      if (!name) return false;
+      return /(?:^|[^a-z0-9])(oob|mgmt|gmgt|management)(?:[^a-z0-9]|$)/i.test(name);
     }
 
     function isMethPortName(value) {
@@ -851,11 +1024,35 @@
     }
 
     function linkUsesMeth(link) {
-      return isHiddenManagementPortName(link.sourcePort) || isHiddenManagementPortName(link.targetPort);
+      return isHiddenManagementPortName(link.sourcePort)
+        || isHiddenManagementPortName(link.targetPort)
+        || isManagementNodeName(link.source)
+        || isManagementNodeName(link.target);
+    }
+
+    const PORT_NAME_COLLATOR = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
+
+    function normalizePortName(name) {
+      const text = normalizeName(name);
+      if (!text) return '';
+      if (text.toLowerCase() === 'eth0') return 'Ethernet0';
+      return text;
     }
 
     function portKey(name) {
       return normalizeName(name).toLowerCase().replace(/\s+/g, '');
+    }
+
+    function comparePortNames(a, b) {
+      return PORT_NAME_COLLATOR.compare(normalizeName(a), normalizeName(b));
+    }
+
+    function isAggregatePortName(name) {
+      const text = normalizeName(name);
+      return /^Bridge-Aggregation\d+$/i.test(text)
+        || /^Eth-Trunk\d+$/i.test(text)
+        || /^Port-Channel\d+$/i.test(text)
+        || /^Route-Aggregation\d+$/i.test(text);
     }
 
     function portIsUp(port) {
@@ -897,17 +1094,19 @@
         if (!state.showMeth && linkUsesMeth(link)) return;
         const srcPort = findPortByNameFromIndex(portIndex, link.source, link.sourcePort);
         const tgtPort = findPortByNameFromIndex(portIndex, link.target, link.targetPort);
-        const srcUp = portIsUp(srcPort);
-        const tgtUp = portIsUp(tgtPort);
+        const srcState = portStatusSnapshot(link.source, link.sourcePort, link.target, srcPort);
+        const tgtState = portStatusSnapshot(link.target, link.targetPort, link.source, tgtPort);
+        const srcUp = srcState.exists ? srcState.up : true;
+        const tgtUp = tgtState.exists ? tgtState.up : true;
         if (srcUp && tgtUp) return;
         rawDown.add(rawLinkKey(link));
         nodeFaultLinks.add(link.source);
         nodeFaultLinks.add(link.target);
-        markFaultPort(portFaults, link.source, link.sourcePort);
-        markFaultPort(portFaults, link.target, link.targetPort);
+        if (!srcUp) markFaultPort(portFaults, link.source, link.sourcePort);
+        if (!tgtUp) markFaultPort(portFaults, link.target, link.targetPort);
       });
       const downNodeIds = new Set((nodes || [])
-        .filter(node => Number(node.status) !== 0)
+        .filter(node => deviceStatusIsDown(node))
         .map(node => node.id));
       return { rawDown, nodeFaultLinks, portFaults, downNodeIds };
     }
@@ -940,6 +1139,257 @@
     function aliasFor(id) {
       const aliases = state.config.aliases || {};
       return normalizeDisplayLabel(aliases[id] || aliases['group:' + id] || id);
+    }
+
+    function configuredTypeFor(id, options) {
+      const opts = options || {};
+      const key = opts.group ? 'group:' + id : id;
+      const types = (state.config && state.config.types) || {};
+      return String(types[key] || (!opts.group ? (types['group:' + id] || '') : '')).trim().toLowerCase();
+    }
+
+    function configuredRoleFor(id) {
+      const roles = (state.config && state.config.roles) || {};
+      const value = Number(roles[id]);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
+    function deviceTypeFor(id) {
+      const raw = state.nodeById && state.nodeById.get(id);
+      return configuredTypeFor(id) || String(raw && raw.__display_meta && raw.__display_meta.type || '').trim().toLowerCase();
+    }
+
+    function deviceStatusIsDown(node) {
+      if (!node) return false;
+      if (node.__fixed_status_code != null) return Number(node.__fixed_status_code) !== 0;
+      return Number(node.status) !== 0;
+    }
+
+    function matchesPortOverrideRule(rule, nodeId, portName, peerNodeId) {
+      if (!rule || !nodeId) return false;
+      const deviceIds = normalizePortList(rule.device_ids || rule.device_id);
+      if (deviceIds.length && !deviceIds.includes(nodeId)) return false;
+      const deviceTypes = normalizePortList(rule.device_types || rule.device_type).map(item => item.toLowerCase());
+      const nodeType = deviceTypeFor(nodeId);
+      if (deviceTypes.length && !deviceTypes.includes(nodeType)) return false;
+      const peerIds = normalizePortList(rule.peer_device_ids || rule.peer_device_id);
+      if (peerIds.length && !peerIds.includes(peerNodeId || '')) return false;
+      const ports = normalizePortList(rule.ports || rule.port_names || rule.port_name);
+      if (ports.length && !ports.includes(portName || '')) return false;
+      return true;
+    }
+
+    function resolvePortStateOverride(nodeId, portName, peerNodeId) {
+      const rules = portStateOverrideRules();
+      for (const rule of rules) {
+        if (!matchesPortOverrideRule(rule, nodeId, portName, peerNodeId)) continue;
+        const up = statusValueToUp(rule.state);
+        if (up == null) continue;
+        return {
+          exists: true,
+          up,
+          text: up ? 'UP' : 'DOWN',
+          forced: true
+        };
+      }
+      return null;
+    }
+
+    function portStatusSnapshot(nodeId, portName, peerNodeId, port) {
+      const override = resolvePortStateOverride(nodeId, portName, peerNodeId);
+      if (override) return { ...override, port: port || null };
+      if (!port) return { exists: false, up: false, text: '缺失', forced: false, port: null };
+      const up = portIsUp(port);
+      return { exists: true, up, text: up ? 'UP' : 'DOWN', forced: false, port };
+    }
+
+    function inferPeerStatusFromLocalPort(port) {
+      if (!port) return { exists: false, up: false, text: '-', inferred: false };
+      const hasTraffic = Number(port.transmit) > 0 || Number(port.receive) > 0;
+      if (!hasTraffic) return { exists: false, up: false, text: '-', inferred: false };
+      return { exists: true, up: true, text: 'UP', inferred: true };
+    }
+
+    function buildSyntheticNodes() {
+      return syntheticDevicesConfig().map((device, index) => {
+        const id = String(device.id || `synthetic-device-${index + 1}`);
+        const label = device.label || device.name || aliasFor(id) || id;
+        const statusCode = statusValueToCode(device.fixed_status, 0);
+        return {
+          id,
+          label,
+          name: label,
+          ip: device.ip || '',
+          status: statusCode,
+          __fixed_status_code: statusCode,
+          ports: toArray(device.ports),
+          __synthetic: true,
+          __display_meta: {
+            zone: device.zone || '',
+            cluster: device.cluster || '',
+            role: Number(device.role) || configuredRoleFor(id) || 3,
+            type: String(device.type || configuredTypeFor(id) || '').trim().toLowerCase()
+          },
+          __synthetic_links: toArray(device.links).map(link => ({
+            source: id,
+            target: link.target_id,
+            sourcePort: link.source_port || link.sourcePort || '',
+            targetPort: link.target_port || link.targetPort || '',
+            __synthetic: true
+          }))
+        };
+      }).filter(device => device.id);
+    }
+
+    function buildSyntheticLinks(nodes) {
+      return toArray(nodes).flatMap(node => toArray(node.__synthetic_links)).filter(link => link.source && link.target);
+    }
+
+    function lineEntryForMonitor(item) {
+      const lines = (state.lineMonitorData && Array.isArray(state.lineMonitorData.lines)) ? state.lineMonitorData.lines : [];
+      const names = [item.source_id, item.label, item.display_name, item.name]
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      return lines.find(line => {
+        const candidates = [line && line.id, line && line.display_name, line && line.name]
+          .map(value => String(value || '').trim())
+          .filter(Boolean);
+        return names.some(name => candidates.includes(name));
+      }) || null;
+    }
+
+    function monitorStatusMeta(status) {
+      if (status == null || status === '') return { down: false, text: '未知', badge: 'warn' };
+      if (typeof status === 'number') return status !== 0 ? { down: true, text: 'DOWN', badge: 'bad' } : { down: false, text: 'UP', badge: 'ok' };
+      const value = String(status).trim().toLowerCase();
+      if (!value) return { down: false, text: '未知', badge: 'warn' };
+      if (['up', 'ok', 'normal', '0', 'false'].includes(value)) return { down: false, text: 'UP', badge: 'ok' };
+      if (['down', '1', 'true', 'alarm', 'critical'].includes(value)) return { down: true, text: 'DOWN', badge: 'bad' };
+      return { down: false, text: String(status).toUpperCase(), badge: 'warn' };
+    }
+
+    function summarizeMonitorPorts(portDetails) {
+      if (!portDetails.length) return { text: '-', badge: 'warn', down: false };
+      const upCount = portDetails.filter(item => item.exists && item.up).length;
+      const missingCount = portDetails.filter(item => !item.exists).length;
+      if (upCount === portDetails.length) return { text: 'UP', badge: 'ok', down: false };
+      if (upCount === 0 && missingCount === 0) return { text: 'DOWN', badge: 'bad', down: true };
+      return { text: missingCount > 0 ? '端口缺失' : '部分异常', badge: 'warn', down: true };
+    }
+
+    function monitorPortDetails(deviceId, ports) {
+      return normalizePortList(ports).map(name => {
+        const port = findPortByName(deviceId, name);
+        const stateInfo = portStatusSnapshot(deviceId, name, '', port);
+        return {
+          name,
+          exists: stateInfo.exists,
+          up: stateInfo.up,
+          text: stateInfo.text,
+          forced: stateInfo.forced,
+          port
+        };
+      });
+    }
+
+    function effectiveMonitorMeta(statusSource, portSummary, monitorMeta) {
+      const source = String(statusSource || 'monitor').trim().toLowerCase();
+      if (source === 'ports') {
+        return {
+          down: !!portSummary.down,
+          text: portSummary.down ? 'DOWN' : (portSummary.text === '-' ? '未知' : 'UP'),
+          badge: portSummary.badge || 'warn'
+        };
+      }
+      if (source === 'monitor_or_ports') {
+        if (portSummary.down) return { down: true, text: 'DOWN', badge: 'bad' };
+        return monitorMeta;
+      }
+      if (source === 'monitor_and_ports') {
+        const down = !!monitorMeta.down && !!portSummary.down;
+        return { down, text: down ? 'DOWN' : 'UP', badge: down ? 'bad' : 'ok' };
+      }
+      return monitorMeta;
+    }
+
+    function normalizeLineMonitorGroups(memberToDisplay) {
+      const cfg = lineMonitorConfig();
+      const groups = toArray(cfg.groups).map((group, index) => {
+        const groupId = String(group.id || `group-${index + 1}`);
+        const items = toArray(group.items).map((item, itemIndex) => {
+          const itemId = String(item.id || item.source_id || item.name || item.display_name || item.label || `item-${itemIndex + 1}`);
+          const label = item.label || item.display_name || item.name || itemId;
+          const deviceId = item.device_id || group.device_id || '';
+          const deviceLabel = item.device_label || aliasFor(deviceId) || deviceId || '-';
+          const ports = normalizePortList(item.ports || group.ports);
+          const portDetails = monitorPortDetails(deviceId, ports);
+          const portSummary = summarizeMonitorPorts(portDetails);
+          const lineEntry = lineEntryForMonitor({ ...item, label, source_id: item.source_id || item.id });
+          const monitorMeta = monitorStatusMeta(lineEntry && lineEntry.status);
+          const monitorTextMeta = monitorStatusMeta(lineEntry && (typeof lineEntry.status_text !== 'undefined' ? lineEntry.status_text : lineEntry.status));
+          const statusSource = item.status_source || group.status_source || cfg.status_source || 'monitor';
+          const effectiveMeta = effectiveMonitorMeta(statusSource, portSummary, monitorMeta);
+          return {
+            id: itemId,
+            label,
+            deviceId,
+            deviceLabel,
+            ports,
+            portDetails,
+            portSummary,
+            lineEntry,
+            statusSource,
+            monitorText: lineEntry ? (lineEntry.status_text || monitorTextMeta.text) : '未知',
+            monitorBadge: lineEntry ? monitorMeta.badge : 'warn',
+            monitorDown: lineEntry ? monitorMeta.down : false,
+            effectiveText: effectiveMeta.text,
+            effectiveBadge: effectiveMeta.badge,
+            effectiveDown: effectiveMeta.down
+          };
+        });
+        const label = group.label || group.title || cfg.title || '专线监控';
+        const anchorDeviceId = group.anchor_device_id || group.device_id || (items[0] && items[0].deviceId) || '';
+        const anchorDisplayId = group.anchor_display_id || memberToDisplay.get(anchorDeviceId) || anchorDeviceId || '';
+        const anchorRaw = anchorDeviceId ? state.nodeById.get(anchorDeviceId) : null;
+        const anchorLabel = anchorRaw ? (aliasFor(anchorRaw.id) || anchorRaw.label || anchorRaw.id) : anchorDeviceId;
+        const zone = group.zone || (anchorRaw ? classifyZone(anchorRaw.id, anchorLabel) : 'compute');
+        const cluster = group.cluster || (anchorRaw ? clusterKey(anchorRaw.id, anchorLabel) : 'default');
+        const role = Number(group.role) || (anchorRaw ? roleRank(anchorRaw.id, anchorLabel) : 3);
+        return {
+          id: groupId,
+          nodeId: `monitor:${groupId}`,
+          label,
+          title: group.title || label,
+          anchorDeviceId,
+          anchorDisplayId,
+          zone,
+          cluster,
+          role,
+          color: group.color || '#22d3ee',
+          lineColor: group.line_color || '#22d3ee',
+          items,
+          count: items.length,
+          down: items.some(item => item.effectiveDown)
+        };
+      }).filter(group => group.items.length > 0 || group.anchorDisplayId);
+      state.lineMonitorGroups = groups;
+      return groups;
+    }
+
+    function lineMonitorGroupById(id) {
+      return (state.lineMonitorGroups || []).find(group => group.id === id || group.nodeId === id) || null;
+    }
+
+    function monitorPortsHtml(portDetails) {
+      if (!portDetails.length) return '<span class="port-muted">-</span>';
+      return `<div class="peer-stack">${portDetails.map(item => {
+        if (!item.exists) return `<div class="peer-chip"><span>${esc(item.name)}</span><span class="badge warn">缺失</span></div>`;
+        return `<div class="peer-chip"><span>${esc(item.name)}</span><span class="${item.up ? 'port-up' : 'port-down'}">${item.up ? 'UP' : 'DOWN'}</span></div>`;
+      }).join('')}</div>`;
+    }
+
+    function monitorBadgeHtml(text, badge) {
+      return `<span class="badge ${badge || 'warn'}">${esc(text || '未知')}</span>`;
     }
 
     function compileRules() {
@@ -1278,6 +1728,165 @@
       }
     }
 
+    function peerTargetNameFromPort(port) {
+      if (!port) return '';
+      const peerName = normalizeName(port.lldp_peer_name);
+      if (peerName) return peerName;
+      const aliasPeer = parseLinkAlias(port.ifAlias);
+      return normalizeName(aliasPeer && aliasPeer.nodeId);
+    }
+
+    function peerEntriesFromIndex(nodeId, port) {
+      if (!state.peerIndex || !nodeId || !port) return [];
+      const nodeMap = state.peerIndex.get(nodeId);
+      const candidates = [port.ifName, port.ifDescr]
+        .map(portKey)
+        .filter(Boolean);
+      const seen = new Set();
+      const result = [];
+      candidates.forEach(key => {
+        ((nodeMap && nodeMap.get(key)) || []).forEach(item => {
+          if (seen.has(item.key)) return;
+          seen.add(item.key);
+          result.push(item);
+        });
+      });
+      return result;
+    }
+
+    function directPeerEntries(nodeId, port) {
+      if (!nodeId || !port) return [];
+      const result = peerEntriesFromIndex(nodeId, port);
+      if (result.length) return result;
+      const seen = new Set();
+      if (port.lldp_peer_name) {
+        pushPeerEntry(result, seen, port.lldp_peer_name, normalizePortName(port.lldp_peer_port || ''));
+      }
+      if (!result.length) {
+        const aliasPeer = parseLinkAlias(port.ifAlias);
+        if (aliasPeer) {
+          pushPeerEntry(result, seen, aliasPeer.nodeId, normalizePortName(aliasPeer.portName || ''));
+        }
+      }
+      return result;
+    }
+
+    function aggregateMemberPeerEntries(nodeId, port) {
+      const portName = port && (port.ifName || port.ifDescr || '');
+      if (!isAggregatePortName(portName)) return [];
+      const node = state.nodeById && state.nodeById.get(nodeId);
+      const targetName = peerTargetNameFromPort(port);
+      if (!node || !targetName) return [];
+      const result = [];
+      const seen = new Set();
+      effectivePorts(node).forEach(candidate => {
+        if (!candidate || candidate === port) return;
+        const candidateName = candidate.ifName || candidate.ifDescr || '';
+        if (isAggregatePortName(candidateName)) return;
+        if (peerTargetNameFromPort(candidate) !== targetName) return;
+        directPeerEntries(nodeId, candidate).forEach(item => {
+          if (seen.has(item.key)) return;
+          seen.add(item.key);
+          result.push(item);
+        });
+      });
+      if (!result.length) {
+        const remoteNode = state.nodeById && state.nodeById.get(targetName);
+        effectivePorts(remoteNode).forEach(candidate => {
+          if (!candidate) return;
+          const candidateName = normalizePortName(candidate.ifName || candidate.ifDescr || candidate.ifIndex || '');
+          if (!candidateName || isAggregatePortName(candidateName)) return;
+          const peerMatch = directPeerEntries(targetName, candidate)
+            .some(item => item.nodeId === nodeId);
+          if (!peerMatch) return;
+          const dedupeKey = `${targetName}::${portKey(candidateName)}`;
+          if (seen.has(dedupeKey)) return;
+          seen.add(dedupeKey);
+          result.push({
+            key: dedupeKey,
+            nodeId: targetName,
+            portName: candidateName
+          });
+        });
+      }
+      return result.sort((a, b) => comparePortNames(a.portName, b.portName));
+    }
+
+    function parseLinkAlias(alias) {
+      const text = normalizeName(alias);
+      const prefix = 'Link-to-';
+      if (!text || !text.startsWith(prefix)) return null;
+      const payload = text.slice(prefix.length).trim();
+      if (!payload) return null;
+      const pos = payload.lastIndexOf('_');
+      if (pos <= 0) return { nodeId: payload, portName: '' };
+      return {
+        nodeId: payload.slice(0, pos).trim(),
+        portName: payload.slice(pos + 1).trim()
+      };
+    }
+
+    function buildTopologyFallbackLinks(topology) {
+      const nodes = Array.isArray(topology && topology.nodes) ? topology.nodes : [];
+      const nodeIds = new Set(nodes.map(node => node && node.id).filter(Boolean));
+      const seen = new Set();
+      const links = [];
+      nodes.forEach(node => {
+        const source = node && node.id;
+        if (!source) return;
+        (node.ports || []).forEach(port => {
+          if (!port) return;
+          const sourcePort = normalizePortName(port.ifName || port.ifDescr || port.ifIndex || '');
+          if (!sourcePort) return;
+          const aliasPeer = parseLinkAlias(port.ifAlias);
+          const target = normalizeName(port.lldp_peer_name || (aliasPeer && aliasPeer.nodeId) || '');
+          if (!target || !nodeIds.has(target) || target === source) return;
+          const targetPort = normalizePortName(port.lldp_peer_port || (aliasPeer && aliasPeer.portName) || '');
+          const left = `${source}\x01${portKey(sourcePort)}`;
+          const right = `${target}\x01${portKey(targetPort)}`;
+          const key = left < right ? `${left}\x02${right}` : `${right}\x02${left}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          links.push({
+            source,
+            sourcePort,
+            target,
+            targetPort
+          });
+        });
+      });
+      return links;
+    }
+
+    function countResolvableLinks(links, topology) {
+      const nodeIds = new Set(((topology && topology.nodes) || []).map(node => node && node.id).filter(Boolean));
+      return (links || []).filter(link => link && nodeIds.has(link.source) && nodeIds.has(link.target)).length;
+    }
+
+    function resolveEffectiveLinks(rawLinks, topology, runtimeStatus) {
+      const normalizedLinks = normalizeLinksPayload(rawLinks);
+      const fallbackLinks = buildTopologyFallbackLinks(topology);
+      const linksStale = datasetIsStale((((runtimeStatus || {}).datasets || {}).links) || null);
+      const resolvableLinks = countResolvableLinks(normalizedLinks, topology);
+      const shouldUseFallback = fallbackLinks.length > 0 && (
+        normalizedLinks.length === 0 ||
+        linksStale ||
+        resolvableLinks === 0
+      );
+      return {
+        links: shouldUseFallback ? fallbackLinks : normalizedLinks,
+        usedFallback: shouldUseFallback
+      };
+    }
+
+    function pushPeerEntry(list, seen, nodeId, portName) {
+      if (!nodeId) return;
+      const dedupeKey = `${nodeId}::${portKey(portName)}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      list.push({ key: dedupeKey, nodeId, portName: portName || '' });
+    }
+
     function buildPeerIndex(links) {
       const index = new Map();
       (links || []).forEach(link => {
@@ -1289,22 +1898,10 @@
     }
 
     function findPeerEntries(nodeId, port) {
-      if (!state.peerIndex || !nodeId || !port) return [];
-      const nodeMap = state.peerIndex.get(nodeId);
-      if (!nodeMap) return [];
-      const candidates = [port.ifName, port.ifDescr, port.ifAlias, port.ifIndex]
-        .map(portKey)
-        .filter(Boolean);
-      const seen = new Set();
-      const result = [];
-      candidates.forEach(key => {
-        (nodeMap.get(key) || []).forEach(item => {
-          if (seen.has(item.key)) return;
-          seen.add(item.key);
-          result.push(item);
-        });
-      });
-      return result;
+      if (!nodeId || !port) return [];
+      const aggregatePeers = aggregateMemberPeerEntries(nodeId, port);
+      if (aggregatePeers.length) return aggregatePeers;
+      return directPeerEntries(nodeId, port);
     }
 
     function effectivePorts(node) {
@@ -1413,14 +2010,20 @@
       const cfg = state.config || {};
       const visibility = cfg.visibility || {};
       const groupVisibility = visibility.groups || {};
-      const metricNodes = (state.topology.nodes || []).filter(n => n && n.id && !isExcludedMetricNodeId(n.id));
+      const topologyNodes = (state.topology.nodes || []).filter(n => n && n.id && !isExcludedMetricNodeId(n.id));
+      const syntheticNodes = buildSyntheticNodes();
+      const metricNodes = topologyNodes.concat(syntheticNodes);
+      const effectiveLinks = (state.links || []).concat(buildSyntheticLinks(syntheticNodes));
       // 架构视图需要把未匹配规则的设备收口到 fallback 组里，因此这里不再
       // 先按 device visibility 过滤，避免设备在进入“带内设备/智算设备”前被吞掉。
       const rawNodes = metricNodes;
       const rules = buildEffectiveArchitectureGroups(compileRules(), rawNodes);
       const nodeById = new Map(metricNodes.map(n => [n.id, n]));
+      state.nodeById = nodeById;
       const portIndex = buildPortIndex(metricNodes);
-      state.faultIndex = buildFaultIndex(metricNodes, state.links || [], portIndex);
+      state.portIndex = portIndex;
+      state.allLinks = effectiveLinks;
+      state.faultIndex = buildFaultIndex(metricNodes, effectiveLinks, portIndex);
       state.metricNodes = metricNodes;
       const groups = new Map();
       const memberToDisplay = new Map();
@@ -1446,7 +2049,7 @@
 
       const displayNodes = [];
       groups.forEach(group => {
-        const down = group.raw.some(node => Number(node.status) !== 0);
+        const down = group.raw.some(node => deviceStatusIsDown(node));
         const label = aliasFor(group.id) || aliasFor(group.groupId);
         displayNodes.push({
           id: group.id,
@@ -1454,6 +2057,7 @@
           zone: classifyDisplayZone(group, group.groupId, label),
           cluster: clusterKey(group.groupId, label),
           role: roleRank(group.groupId, label),
+          type: configuredTypeFor(group.groupId, { group: true }),
           count: group.members.length,
           down,
           kind: 'group',
@@ -1464,6 +2068,23 @@
 
       standalone.forEach(node => {
         const label = aliasFor(node.id) || node.label || node.name || node.id;
+        const configuredMeta = node.__display_meta || {};
+        if (configuredMeta.zone) {
+          displayNodes.push({
+            id: node.id,
+            label,
+            zone: configuredMeta.zone,
+            cluster: configuredMeta.cluster || clusterKey(node.id, label),
+            role: Number(configuredMeta.role) || roleRank(node.id, label),
+            type: configuredMeta.type || configuredTypeFor(node.id),
+            count: 1,
+            down: deviceStatusIsDown(node),
+            kind: 'device',
+            members: [node.id]
+          });
+          memberToDisplay.set(node.id, node.id);
+          return;
+        }
         const matchedZone = matchedZoneRule(node.id, label);
         if (matchedZone) {
           const role = roleRank(node.id, label);
@@ -1482,8 +2103,9 @@
             zone: matchedZone.id,
             cluster: clusterKey(node.id, label),
             role,
+            type: configuredMeta.type || configuredTypeFor(node.id),
             count: 1,
-            down: Number(node.status) !== 0,
+            down: deviceStatusIsDown(node),
             kind: 'device',
             members: [node.id]
           });
@@ -1503,8 +2125,9 @@
           zone: bucket.zone,
           cluster: bucket.cluster,
           role: bucket.role,
+          type: configuredTypeFor(bucket.id, { group: true }),
           count: bucket.nodes.length,
-          down: bucket.nodes.some(node => Number(node.status) !== 0),
+          down: bucket.nodes.some(node => deviceStatusIsDown(node)),
           kind: 'group',
           groupId: bucket.id,
           members: bucket.nodes.map(node => node.id)
@@ -1520,17 +2143,37 @@
           zone: computeBucket ? 'compute' : 'mgmt',
           cluster: computeBucket ? clusterKey(syntheticId, '智算设备') : 'default',
           role: 3,
+          type: configuredTypeFor(syntheticId, { group: true }),
           count: bucket.length,
-          down: bucket.some(node => Number(node.status) !== 0),
+          down: bucket.some(node => deviceStatusIsDown(node)),
           kind: 'group',
           groupId: syntheticId,
           members: bucket.map(node => node.id)
         });
       });
 
+      const monitorGroups = lineMonitorEnabled() ? normalizeLineMonitorGroups(memberToDisplay) : [];
+      if (!lineMonitorEnabled()) state.lineMonitorGroups = [];
+      monitorGroups.forEach(group => {
+        if (!group.anchorDisplayId) return;
+        displayNodes.push({
+          id: group.nodeId,
+          label: group.label,
+          zone: group.zone,
+          cluster: group.cluster,
+          role: group.role,
+          type: 'monitor',
+          count: group.count,
+          down: group.down,
+          kind: 'monitor',
+          monitorGroupId: group.id,
+          members: []
+        });
+      });
+
       const linkMap = new Map();
       let hiddenMeth = 0;
-      (state.links || []).forEach(link => {
+      effectiveLinks.forEach(link => {
         if (!link || !link.source || !link.target) return;
         if (!state.showMeth && linkUsesMeth(link)) {
           hiddenMeth++;
@@ -1552,6 +2195,22 @@
 
       const nodeIds = new Set(displayNodes.map(n => n.id));
       const displayLinks = Array.from(linkMap.values()).filter(link => nodeIds.has(link.from) && nodeIds.has(link.to));
+      monitorGroups.forEach(group => {
+        if (!group.anchorDisplayId || !nodeIds.has(group.anchorDisplayId) || !nodeIds.has(group.nodeId)) return;
+        displayLinks.push({
+          id: `monitor-link:${group.id}:${group.anchorDisplayId}`,
+          from: group.anchorDisplayId,
+          to: group.nodeId,
+          count: Math.max(1, group.count),
+          down: group.down,
+          speed: 0,
+          raw: [],
+          kind: 'monitor',
+          dashed: true,
+          fixedColor: group.lineColor,
+          monitorGroupId: group.id
+        });
+      });
       const displayNodeMap = new Map(displayNodes.map(node => [node.id, node]));
       const displayFaultLinkCount = displayLinks.reduce((count, link) => count + (link.down ? 1 : 0), 0);
       state.displayNodes = displayNodes;
@@ -1559,8 +2218,7 @@
       state.displayFaultLinkCount = displayFaultLinkCount;
       state.hiddenMethLinks = hiddenMeth;
       state.nodeById = nodeById;
-      state.portIndex = portIndex;
-      state.peerIndex = buildPeerIndex(state.links || []);
+      state.peerIndex = buildPeerIndex(effectiveLinks);
       state.displayNodeById = displayNodeMap;
     }
 
@@ -1576,8 +2234,11 @@
 
     function layoutNodes() {
       const byZone = new Map(zoneDefinitions.map(zone => [zone.id, []]));
+      const fallbackZoneId = (zoneDefinitions[0] && zoneDefinitions[0].id) || 'compute';
+      if (!byZone.has(fallbackZoneId)) byZone.set(fallbackZoneId, []);
       state.displayNodes.forEach(node => {
-        const targetZone = byZone.has(node.zone) ? node.zone : 'compute';
+        const targetZone = byZone.has(node.zone) ? node.zone : fallbackZoneId;
+        if (!byZone.has(targetZone)) byZone.set(targetZone, []);
         byZone.get(targetZone).push(node);
       });
 
@@ -1859,6 +2520,82 @@
       group.appendChild(svgEl('path', { class: 'switch-icon-mark', d: `M${centerX},${y + 7}l-5,5M${centerX},${y + 7}l5,5M${centerX},${y + 31}l-5,-5M${centerX},${y + 31}l5,-5M${x + 12},${centerY}l5,-5M${x + 12},${centerY}l5,5M${x + 36},${centerY}l-5,-5M${x + 36},${centerY}l-5,5` }));
     }
 
+    function appendFirewallIcon(group, node) {
+      const x = (node.w - 54) / 2;
+      const y = 10;
+      const bodyFill = node.down ? '#7f1d1d' : '#1e293b';
+      const stroke = node.down ? '#ef4444' : '#22d3ee';
+      group.appendChild(svgEl('rect', {
+        x: x + 4,
+        y: y + 2,
+        width: 46,
+        height: 36,
+        rx: 8,
+        fill: bodyFill,
+        stroke,
+        'stroke-width': 1.4
+      }));
+      group.appendChild(svgEl('path', {
+        d: `M${x + 16},${y + 11}h22M${x + 16},${y + 19}h22M${x + 16},${y + 27}h22`,
+        stroke,
+        'stroke-width': 2,
+        'stroke-linecap': 'round'
+      }));
+      group.appendChild(svgEl('path', {
+        d: `M${x + 11},${y + 9}v24M${x + 43},${y + 9}v24`,
+        stroke,
+        'stroke-width': 1.6,
+        'stroke-linecap': 'round'
+      }));
+    }
+
+    function appendMonitorIcon(group, node) {
+      const x = (node.w - 54) / 2;
+      const y = 10;
+      const stroke = node.down ? '#f59e0b' : '#22d3ee';
+      const fill = node.down ? '#3b2a10' : '#083344';
+      group.appendChild(svgEl('rect', {
+        x: x + 2,
+        y: y + 4,
+        width: 50,
+        height: 30,
+        rx: 15,
+        fill,
+        stroke,
+        'stroke-width': 1.3
+      }));
+      group.appendChild(svgEl('path', {
+        d: `M${x + 12},${y + 22}c4-8 10-12 15-12s11 4 15 12`,
+        stroke,
+        'stroke-width': 1.8,
+        fill: 'none',
+        'stroke-linecap': 'round'
+      }));
+      group.appendChild(svgEl('circle', {
+        cx: x + 27,
+        cy: y + 22,
+        r: 2.8,
+        fill: stroke
+      }));
+    }
+
+    function appendNodeIcon(group, node) {
+      if (node.kind === 'monitor' || node.type === 'monitor') {
+        appendMonitorIcon(group, node);
+        return;
+      }
+      if (node.type === 'firewall') {
+        appendFirewallIcon(group, node);
+        return;
+      }
+      appendSwitchIcon(group, node);
+    }
+
+    function linkStrokeColor(link) {
+      if (link && link.fixedColor && !link.down) return link.fixedColor;
+      return colorBySpeed(Number(link && link.speed) || 0, !!(link && link.down));
+    }
+
     function linkEndpoint(from, to) {
       const fx = from.iconCx || from.cx;
       const fy = from.iconCy || from.cy;
@@ -1910,10 +2647,12 @@
 
       const zoneLayer = svgEl('g');
       const linkLayer = svgEl('g');
+      const zoneTextLayer = svgEl('g', { class: 'zone-text-layer' });
       const nodeLayer = svgEl('g');
       focusLinkLayer = svgEl('g', { class: 'focus-link-layer' });
       svg.appendChild(zoneLayer);
       svg.appendChild(linkLayer);
+      svg.appendChild(zoneTextLayer);
       svg.appendChild(nodeLayer);
       svg.appendChild(focusLinkLayer);
 
@@ -1921,15 +2660,15 @@
         zoneLayer.appendChild(svgEl('rect', { class: 'zone-bg', x: zone.x, y: zone.y, width: zone.w, height: zone.h, rx: 8 }));
         const title = svgEl('text', { class: 'zone-label', x: zone.x + 18, y: zone.y + 26 });
         title.textContent = zone.title;
-        zoneLayer.appendChild(title);
+        zoneTextLayer.appendChild(title);
         const sub = svgEl('text', { class: 'zone-sub', x: zone.x + 18, y: zone.y + 44 });
         sub.textContent = zone.subtitle;
-        zoneLayer.appendChild(sub);
+        zoneTextLayer.appendChild(sub);
         (zone.sections || []).forEach(section => {
           zoneLayer.appendChild(svgEl('rect', { class: 'cluster-bg', x: section.x, y: section.y, width: section.w, height: section.h, rx: 7 }));
           const label = svgEl('text', { class: `cluster-label ${section.id}`, x: section.x + 12, y: section.y + 17 });
           label.textContent = section.title;
-          zoneLayer.appendChild(label);
+          zoneTextLayer.appendChild(label);
         });
       });
 
@@ -1942,9 +2681,10 @@
           class: 'link' + (link.down ? ' down' : ''),
           'data-link-id': link.id,
           d: linePath(a, b),
-          stroke: colorBySpeed(link.speed, link.down),
+          stroke: linkStrokeColor(link),
           'stroke-width': Math.min(8, 1.4 + Math.log2(link.count + 1))
         });
+        if (link.dashed) path.setAttribute('stroke-dasharray', '8 6');
         const underlay = svgEl('path', {
           class: 'link-underlay',
           'data-link-id': link.id,
@@ -1966,18 +2706,23 @@
           showNodeDetail(node);
         });
         group.appendChild(svgEl('rect', { class: 'node-rect', width: node.w, height: node.h, rx: 7 }));
-        appendSwitchIcon(group, node);
+        appendNodeIcon(group, node);
         group.appendChild(svgEl('circle', { class: 'node-dot' + (node.down ? ' alarm' : ''), cx: node.w - 13, cy: 14, r: 5, fill: node.down ? '#ef4444' : '#22c55e' }));
         const title = svgEl('text', { class: 'node-title', x: node.w / 2, y: 66 });
         title.textContent = truncate(node.label, 14);
         group.appendChild(title);
         const meta = svgEl('text', { class: 'node-meta', x: node.w / 2, y: 87 });
-        meta.textContent = node.kind === 'group' ? `${roleLabel(node.role, node.zone)} / ${node.count} 台` : `${roleLabel(node.role, node.zone)} / ${node.down ? 'DOWN' : 'UP'}`;
+        meta.textContent = node.kind === 'group'
+          ? `${roleLabel(node.role, node.zone)} / ${node.count} 台`
+          : (node.kind === 'monitor'
+            ? `专线监控 / ${node.count} 条`
+            : `${roleLabel(node.role, node.zone)} / ${node.down ? 'DOWN' : 'UP'}`);
         group.appendChild(meta);
         nodeLayer.appendChild(group);
       });
 
       updateMetrics();
+      renderLineMonitorLegend();
       refreshActiveDetail();
       applySelectionHighlight();
       if (animate && window.anime && shouldAnimateRender()) {
@@ -1997,7 +2742,8 @@
       const loadedAt = state.dataUpdatedAt
         ? ` / 更新时间 ${formatDateTime(state.dataUpdatedAt)}`
         : '';
-      $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${state.links.length} 条原始链路${loadedAt}`;
+      const sourceStatus = state.dataSourceError ? ' / 数据源异常' : '';
+      $('subtitle').textContent = `${state.displayNodes.length} 个展示节点 / ${(state.allLinks || state.links || []).length} 条链路${loadedAt}${sourceStatus}`;
     }
 
     function connectedSelection(id) {
@@ -2014,40 +2760,74 @@
       if (!focusLinkLayer) return;
       focusLinkLayer.innerHTML = '';
       const selected = selectedDisplayNodeId;
+      const selectedLink = selectedLinkId;
       const nodeEls = Array.from(svg.querySelectorAll('.node-card'));
       const linkEls = Array.from(svg.querySelectorAll('.link,.link-underlay'));
       nodeEls.forEach(el => el.classList.remove('selected', 'connected', 'dimmed'));
       linkEls.forEach(el => el.classList.remove('connected', 'dimmed'));
-      if (!selected || !(state.displayNodeById && state.displayNodeById.has(selected))) return;
-      const conn = connectedSelection(selected);
+      if (selected && state.displayNodeById && state.displayNodeById.has(selected)) {
+        const conn = connectedSelection(selected);
+        nodeEls.forEach(el => {
+          const id = el.getAttribute('data-node-id');
+          if (id === selected) el.classList.add('selected');
+          else if (conn.nodes.has(id)) el.classList.add('connected');
+          else el.classList.add('dimmed');
+        });
+        linkEls.forEach(el => {
+          const id = el.getAttribute('data-link-id');
+          if (conn.links.some(link => link.id === id)) el.classList.add('connected');
+          else el.classList.add('dimmed');
+        });
+        conn.links.forEach(link => {
+          const a = state.displayNodeById.get(link.from);
+          const b = state.displayNodeById.get(link.to);
+          if (!a || !b) return;
+          const focus = svgEl('path', {
+            class: 'link-focus' + (link.down ? ' down' : ''),
+            d: linePath(a, b),
+            stroke: linkStrokeColor(link),
+            'stroke-width': Math.min(10, 3.6 + Math.log2(link.count + 1)),
+            'data-link-id': link.id
+          });
+          if (link.dashed) focus.setAttribute('stroke-dasharray', '8 6');
+          focus.addEventListener('click', ev => {
+            ev.stopPropagation();
+            showLinkDetail(link, a, b);
+          });
+          focusLinkLayer.appendChild(focus);
+        });
+        return;
+      }
+      if (!selectedLink) return;
+      const link = state.displayLinks.find(item => item.id === selectedLink);
+      if (!link) return;
+      const relatedNodes = new Set([link.from, link.to]);
       nodeEls.forEach(el => {
         const id = el.getAttribute('data-node-id');
-        if (id === selected) el.classList.add('selected');
-        else if (conn.nodes.has(id)) el.classList.add('connected');
+        if (relatedNodes.has(id)) el.classList.add('connected');
         else el.classList.add('dimmed');
       });
       linkEls.forEach(el => {
         const id = el.getAttribute('data-link-id');
-        if (conn.links.some(link => link.id === id)) el.classList.add('connected');
+        if (id === selectedLink) el.classList.add('connected');
         else el.classList.add('dimmed');
       });
-      conn.links.forEach(link => {
-        const a = state.displayNodeById.get(link.from);
-        const b = state.displayNodeById.get(link.to);
-        if (!a || !b) return;
-        const focus = svgEl('path', {
-          class: 'link-focus' + (link.down ? ' down' : ''),
-          d: linePath(a, b),
-          stroke: colorBySpeed(link.speed, link.down),
-          'stroke-width': Math.min(10, 3.6 + Math.log2(link.count + 1)),
-          'data-link-id': link.id
-        });
-        focus.addEventListener('click', ev => {
-          ev.stopPropagation();
-          showLinkDetail(link, a, b);
-        });
-        focusLinkLayer.appendChild(focus);
+      const a = state.displayNodeById.get(link.from);
+      const b = state.displayNodeById.get(link.to);
+      if (!a || !b) return;
+      const focus = svgEl('path', {
+        class: 'link-focus' + (link.down ? ' down' : ''),
+        d: linePath(a, b),
+        stroke: linkStrokeColor(link),
+        'stroke-width': Math.min(10, 3.6 + Math.log2(link.count + 1)),
+        'data-link-id': link.id
       });
+      if (link.dashed) focus.setAttribute('stroke-dasharray', '8 6');
+      focus.addEventListener('click', ev => {
+        ev.stopPropagation();
+        showLinkDetail(link, a, b);
+      });
+      focusLinkLayer.appendChild(focus);
     }
 
     function setActiveMetric(name) {
@@ -2077,6 +2857,7 @@
     function renderNodeList(title, nodes) {
       setActiveMetric(title.metric || '');
       selectedDisplayNodeId = '';
+      selectedLinkId = '';
       applySelectionHighlight();
       activeDetail = { type: 'metric', metric: title.metric || '' };
       const rows = nodes.map(node => {
@@ -2098,19 +2879,21 @@
 
     function rawNodeView(node) {
       const label = aliasFor(node.id) || node.label || node.id;
+      const meta = node && node.__display_meta || {};
       return {
         id: node.id,
         label,
-        zone: classifyZone(node.id, label),
-        role: roleRank(node.id, label),
-        cluster: clusterKey(node.id, label),
-        down: Number(node.status) !== 0
+        zone: meta.zone || classifyZone(node.id, label),
+        role: Number(meta.role) || roleRank(node.id, label),
+        cluster: meta.cluster || clusterKey(node.id, label),
+        down: deviceStatusIsDown(node)
       };
     }
 
     function renderRawDeviceList(title, rawNodes) {
       setActiveMetric(title.metric || '');
       selectedDisplayNodeId = '';
+      selectedLinkId = '';
       applySelectionHighlight();
       activeDetail = { type: 'metric', metric: title.metric || '' };
       const views = rawNodes.map(rawNodeView).sort((a, b) => a.zone.localeCompare(b.zone) || a.role - b.role || a.label.localeCompare(b.label));
@@ -2129,6 +2912,7 @@
     function renderLinkList() {
       setActiveMetric('links');
       selectedDisplayNodeId = '';
+      selectedLinkId = '';
       applySelectionHighlight();
       activeDetail = { type: 'metric', metric: 'links' };
       const rows = state.displayLinks
@@ -2153,6 +2937,7 @@
     function renderMethDetail() {
       setActiveMetric('meth');
       selectedDisplayNodeId = '';
+      selectedLinkId = '';
       applySelectionHighlight();
       activeDetail = { type: 'metric', metric: 'meth' };
       const methLinks = state.showMeth ? [] : (state.links || []).filter(link => linkUsesMeth(link));
@@ -2166,20 +2951,129 @@
       bindDetailBackButton();
     }
 
+    function renderLineMonitorLegend() {
+      const section = $('line-monitor-section');
+      const container = $('line-monitor-legend');
+      if (!section || !container) return;
+      const groups = state.lineMonitorGroups || [];
+      if (!lineMonitorEnabled() || !groups.length) {
+        section.style.display = 'none';
+        container.innerHTML = '<div class="info-item">暂无监控项</div>';
+        return;
+      }
+      section.style.display = '';
+      $('line-monitor-title').textContent = lineMonitorConfig().title || '专线监控';
+      const items = groups.flatMap(group => group.items.map(item => ({ group, item })));
+      $('line-monitor-count').textContent = String(items.length);
+      container.innerHTML = items.map(({ group, item }) => {
+        const meta = `${item.deviceLabel} / ${item.ports.join('、') || '-'}`;
+        return `<div class="list-row" data-line-monitor-group="${esc(group.id)}" data-line-monitor-item="${esc(item.id)}"><div><strong>${esc(item.label)}</strong><small>${esc(meta)}</small></div>${monitorBadgeHtml(item.effectiveText, item.effectiveBadge)}</div>`;
+      }).join('') || '<div class="info-item">暂无监控项</div>';
+      container.querySelectorAll('[data-line-monitor-item]').forEach(row => {
+        row.addEventListener('click', () => {
+          showLineMonitorItemDetail(row.dataset.lineMonitorGroup, row.dataset.lineMonitorItem);
+        });
+      });
+    }
+
+    function showLineMonitorGroupDetail(groupId, options) {
+      const opts = { recordHistory: true, ...(options || {}) };
+      ensureDetailVisible();
+      setActiveMetric('');
+      const group = lineMonitorGroupById(groupId);
+      if (!group) {
+        clearDetailPanel();
+        return;
+      }
+      if (opts.recordHistory) rememberDetail({ type: 'line-monitor-group', id: group.id });
+      activeDetail = { type: 'line-monitor-group', id: group.id };
+      selectedDisplayNodeId = group.nodeId;
+      selectedLinkId = '';
+      applySelectionHighlight();
+      const rows = group.items.map(item => {
+        return `<tr data-line-monitor-item="${esc(item.id)}">
+          <td>${esc(item.label)}</td>
+          <td>${esc(item.deviceLabel)}</td>
+          <td>${monitorPortsHtml(item.portDetails)}</td>
+          <td>${monitorBadgeHtml(item.portSummary.text, item.portSummary.badge)}</td>
+          <td>${monitorBadgeHtml(item.monitorText, item.monitorBadge)}</td>
+          <td>${monitorBadgeHtml(item.effectiveText, item.effectiveBadge)}</td>
+        </tr>`;
+      }).join('');
+      const updatedAt = parseDateValue((state.lineMonitorData || {}).last_updated) || state.monitorUpdatedAt;
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc(group.title)}</b>${statusBadge(group.down)}</div>
+        <div class="info-grid">
+          <div class="info-item"><span>监控项</span><b>${group.count}</b></div>
+          <div class="info-item"><span>锚点设备</span><b>${esc(aliasFor(group.anchorDeviceId) || group.anchorDeviceId || '-')}</b></div>
+          <div class="info-item"><span>异常项</span><b>${group.items.filter(item => item.effectiveDown).length}</b></div>
+          <div class="info-item"><span>更新时间</span><b>${esc(formatDateTime(updatedAt) || '-')}</b></div>
+        </div>
+        ${detailActionsHtml()}
+        <div class="detail-table-wrap"><table class="port-table" style="min-width:1040px"><thead><tr><th>专线名称</th><th>监控设备</th><th>监控端口</th><th>端口状态</th><th>监控状态</th><th>综合状态</th></tr></thead><tbody>${rows || '<tr><td colspan="6">暂无监控数据</td></tr>'}</tbody></table></div>`;
+      bindDetailBackButton();
+      $('detail').querySelectorAll('[data-line-monitor-item]').forEach(row => {
+        row.addEventListener('click', () => showLineMonitorItemDetail(group.id, row.dataset.lineMonitorItem));
+      });
+    }
+
+    function showLineMonitorItemDetail(groupId, itemId, options) {
+      const opts = { recordHistory: true, ...(options || {}) };
+      ensureDetailVisible();
+      setActiveMetric('');
+      const group = lineMonitorGroupById(groupId);
+      const item = group && group.items.find(entry => entry.id === itemId);
+      if (!group || !item) {
+        clearDetailPanel();
+        return;
+      }
+      if (opts.recordHistory) rememberDetail({ type: 'line-monitor-item', groupId: group.id, id: item.id });
+      activeDetail = { type: 'line-monitor-item', groupId: group.id, id: item.id };
+      selectedDisplayNodeId = group.nodeId;
+      selectedLinkId = '';
+      applySelectionHighlight();
+      const portRows = item.portDetails.map(detail => {
+        const port = detail.port;
+        return `<tr>
+          <td>${esc(detail.name)}</td>
+          <td class="${detail.exists ? (detail.up ? 'port-up' : 'port-down') : 'port-muted'}">${detail.exists ? (detail.up ? 'UP' : 'DOWN') : '缺失'}</td>
+          <td>${esc(port ? (port.speed_mbps || '-') : '-')}</td>
+          <td>${esc(port ? formatBytes(port.transmit || 0) : '-')}</td>
+          <td>${esc(port ? formatBytes(port.receive || 0) : '-')}</td>
+          <td>${port ? Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2) : '0.00'}%</td>
+        </tr>`;
+      }).join('');
+      $('detail').innerHTML = `<div class="detail-title"><b>${esc(item.label)}</b>${monitorBadgeHtml(item.effectiveText, item.effectiveBadge)}</div>
+        <div class="info-grid">
+          <div class="info-item"><span>监控设备</span><b>${esc(item.deviceLabel)}</b></div>
+          <div class="info-item"><span>设备 ID</span><b>${esc(item.deviceId || '-')}</b></div>
+          <div class="info-item"><span>综合状态</span><b>${esc(item.effectiveText)}</b></div>
+          <div class="info-item"><span>端口状态</span><b>${esc(item.portSummary.text)}</b></div>
+          <div class="info-item"><span>监控状态</span><b>${esc(item.monitorText)}</b></div>
+        </div>
+        ${detailActionsHtml()}
+        <div class="detail-table-wrap"><table class="port-table" style="min-width:860px"><thead><tr><th>监控端口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr></thead><tbody>${portRows || '<tr><td colspan="6">暂无端口数据</td></tr>'}</tbody></table></div>`;
+      bindDetailBackButton();
+    }
+
     function showNodeDetail(node, options) {
       const opts = { recordHistory: true, ...(options || {}) };
       ensureDetailVisible();
       setActiveMetric('');
+      if (node.kind === 'monitor') {
+        showLineMonitorGroupDetail(node.monitorGroupId || node.id.replace(/^monitor:/, ''), options);
+        return;
+      }
       if (opts.recordHistory) {
         rememberDetail(node.kind === 'group' ? { type: 'node', id: node.id } : { type: 'raw-device', id: node.id });
       }
       selectedDisplayNodeId = node.id;
+      selectedLinkId = '';
       applySelectionHighlight();
       if (node.kind === 'group') {
         activeDetail = { type: 'node', id: node.id };
         const memberRows = node.members.map(id => {
           const raw = state.nodeById.get(id);
-          const down = raw ? Number(raw.status) !== 0 : false;
+          const down = raw ? deviceStatusIsDown(raw) : false;
           return `<div class="list-row" data-raw-node-id="${esc(id)}"><div><strong>${esc(aliasFor(id) || id)}</strong><small>${esc(id)}</small></div>${statusBadge(down)}</div>`;
         }).join('');
         $('detail').innerHTML = `<div class="detail-title"><b>${esc(node.label)}</b>${statusBadge(node.down)}</div>
@@ -2213,12 +3107,17 @@
       const portRows = prepareDevicePortRows(id, ports);
       const downPorts = portRows.filter(row => row.fault);
       const hiddenMethPorts = Array.isArray(raw.ports) ? raw.ports.length - ports.length : 0;
-      const sortedRows = portRows.slice().sort((a, b) => Number(b.fault) - Number(a.fault));
-      const tableHtml = buildDevicePortTable(portRows);
-      const sideTableHtml = buildDevicePortTable(sortedRows.slice(0, 40));
+      const tableRows = portRows.slice().sort((a, b) => comparePortNames(a.portName, b.portName));
+      const sortedRows = portRows.slice().sort((a, b) => {
+        return Number(b.peerCount > 0) - Number(a.peerCount > 0)
+          || Number(b.fault) - Number(a.fault)
+          || Number(b.up) - Number(a.up)
+          || comparePortNames(a.portName, b.portName);
+      });
+      const tableHtml = buildDevicePortTable(tableRows);
+      const sideTableHtml = buildDevicePortTable(sortedRows);
       const tableTitle = `设备端口 - ${label}`;
-      const hiddenNotice = ports.length > 40 ? `<span class="badge warn">侧栏仅显示前 40 条</span>` : '';
-      const down = Number(raw.status) !== 0;
+      const down = deviceStatusIsDown(raw);
       $('detail').innerHTML = `<div class="detail-title"><b>${esc(label)}</b>${statusBadge(down)}</div>
         <div class="info-grid">
           <div class="info-item"><span>ID</span><b>${esc(id)}</b></div>
@@ -2226,7 +3125,7 @@
           <div class="info-item"><span>端口</span><b>${ports.length}</b></div>
           <div class="info-item"><span>异常端口</span><b>${downPorts.length}</b></div>
         </div>
-        ${detailActionsHtml(`${hiddenMethPorts > 0 ? `<span class="badge warn">已隐藏管理接口 ${hiddenMethPorts}</span>` : ''}${hiddenNotice}<button id="device-expand-toggle" class="detail-btn" type="button">展示全部列</button>`)}
+        ${detailActionsHtml(`${hiddenMethPorts > 0 ? `<span class="badge warn">已隐藏管理接口 ${hiddenMethPorts}</span>` : ''}<button id="device-expand-toggle" class="detail-btn" type="button">展示全部列</button>`)}
         <div class="detail-table-wrap">${sideTableHtml}</div>`;
       bindDetailBackButton();
       const btn = $('device-expand-toggle');
@@ -2236,19 +3135,28 @@
     function prepareDevicePortRows(nodeId, ports) {
       const node = state.nodeById.get(nodeId);
       return ports.map(port => {
-        const up = portIsUp(port);
+        const portName = port.ifName || port.ifDescr || port.ifIndex || '';
+        const current = portStatusSnapshot(nodeId, portName, '', port);
+        const up = current.up;
         const fault = portHasLinkedFault(node, port);
         const peers = findPeerEntries(nodeId, port);
         const peerHtml = peers.length ? `<div class="peer-stack">${peers.map(peer => {
           const peerNode = state.nodeById.get(peer.nodeId);
           const peerPort = findPortByName(peer.nodeId, peer.portName);
-          const peerUp = portIsUp(peerPort);
-          return `<div class="peer-chip"><span>${esc(peerNode ? (aliasFor(peer.nodeId) || peerNode.label || peer.nodeId) : peer.nodeId)}</span><small>${esc(peer.portName || '-')}</small><span class="${peerUp ? 'port-up' : 'port-down'}">${peerUp ? 'UP' : 'DOWN'}</span></div>`;
+          const peerState = portStatusSnapshot(peer.nodeId, peer.portName, nodeId, peerPort);
+          const displayPeerState = peerState.exists ? peerState : inferPeerStatusFromLocalPort(port);
+          const peerStatusHtml = displayPeerState.exists
+            ? `<span class="${displayPeerState.up ? 'port-up' : 'port-down'}">${displayPeerState.text}</span>`
+            : '';
+          return `<div class="peer-chip"><span>${esc(peerNode ? (aliasFor(peer.nodeId) || peerNode.label || peerNode.id) : peer.nodeId)}</span><small>${esc(peer.portName || '-')}</small>${peerStatusHtml}</div>`;
         }).join('')}</div>` : '<span class="port-muted">-</span>';
         const statusClass = up ? 'port-up' : (fault ? 'port-down' : 'port-muted');
         return {
+          portName,
           fault,
-          html: `<tr class="${fault ? 'alarm-row' : ''}"><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="${statusClass}">${up ? 'UP' : 'DOWN'}</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td><td>${peerHtml}</td></tr>`
+          up,
+          peerCount: peers.length,
+          html: `<tr class="${fault ? 'alarm-row' : ''}"><td>${esc(portName || '-')}</td><td class="${statusClass}">${current.text}</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td><td>${peerHtml}</td></tr>`
         };
       });
     }
@@ -2258,26 +3166,171 @@
       return `<table class="port-table" style="min-width:980px"><thead><tr><th>接口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th><th>对端信息</th></tr></thead><tbody>${portRows || '<tr><td colspan="7">暂无端口数据</td></tr>'}</tbody></table>`;
     }
 
+    function addLinkDetailEntry(entries, seen, source, sourcePort, target, targetPort) {
+      if (!source || !target) return;
+      const key = [
+        source,
+        portKey(sourcePort),
+        target,
+        portKey(targetPort)
+      ].join('\x01');
+      if (seen.has(key)) return;
+      seen.add(key);
+      entries.push({
+        source,
+        sourcePort: sourcePort || '',
+        target,
+        targetPort: targetPort || ''
+      });
+    }
+
+    function collectInferredLinkEntries(sourceNodeId, targetNodeId, entries, seen) {
+      const node = state.nodeById.get(sourceNodeId);
+      if (!node || !targetNodeId) return;
+      effectivePorts(node).forEach(port => {
+        if (!port) return;
+        const sourcePort = normalizePortName(port.ifName || port.ifDescr || port.ifIndex || '');
+        if (!sourcePort) return;
+        if (isAggregatePortName(sourcePort)) {
+          const aggregatePeers = aggregateMemberPeerEntries(sourceNodeId, port)
+            .filter(item => item.nodeId === targetNodeId);
+          if (aggregatePeers.length) return;
+        }
+        directPeerEntries(sourceNodeId, port)
+          .filter(item => item.nodeId === targetNodeId)
+          .forEach(item => addLinkDetailEntry(entries, seen, sourceNodeId, sourcePort, targetNodeId, normalizePortName(item.portName || '')));
+      });
+    }
+
+    function buildLinkDetailEntries(link) {
+      const entries = [];
+      const seen = new Set();
+      const nodePairs = buildLinkNodePairs(link);
+      (link.raw || []).forEach(item => {
+        addLinkDetailEntry(
+          entries,
+          seen,
+          item.source,
+          normalizePortName(item.sourcePort || ''),
+          item.target,
+          normalizePortName(item.targetPort || '')
+        );
+      });
+      nodePairs.forEach(pair => {
+        collectAggregateAliasEntries(pair.source, pair.target, entries, seen);
+        collectInferredLinkEntries(pair.source, pair.target, entries, seen);
+        collectInferredLinkEntries(pair.target, pair.source, entries, seen);
+      });
+      const normalizedEntries = entries.map(item => {
+        if (!item || !item.source || !item.target) return item;
+        const hasSourcePort = !!item.sourcePort;
+        const hasTargetPort = !!item.targetPort;
+        if (hasSourcePort && !hasTargetPort) {
+          const targetAgg = aggregatePortNamesPointingTo(item.target, item.source)[0] || '';
+          return targetAgg ? { ...item, targetPort: targetAgg } : item;
+        }
+        if (!hasSourcePort && hasTargetPort) {
+          const sourceAgg = aggregatePortNamesPointingTo(item.source, item.target)[0] || '';
+          return sourceAgg ? { ...item, sourcePort: sourceAgg } : item;
+        }
+        return item;
+      });
+      const concretePairKeys = new Set(normalizedEntries
+        .filter(item => item && item.source && item.target && item.sourcePort && item.targetPort)
+        .map(item => [item.source, item.target].sort().join('\x01')));
+      return normalizedEntries
+        .filter(item => {
+          if (!item || !item.source || !item.target) return false;
+          const hasSourcePort = !!item.sourcePort;
+          const hasTargetPort = !!item.targetPort;
+          if (hasSourcePort === hasTargetPort) return true;
+          const aggregatePort = hasSourcePort ? item.sourcePort : item.targetPort;
+          if (!isAggregatePortName(aggregatePort)) return true;
+          const pairKey = [item.source, item.target].sort().join('\x01');
+          return !concretePairKeys.has(pairKey);
+        })
+        .sort((a, b) => {
+            return PORT_NAME_COLLATOR.compare(normalizeName(a.source), normalizeName(b.source))
+              || comparePortNames(a.sourcePort, b.sourcePort)
+              || PORT_NAME_COLLATOR.compare(normalizeName(a.target), normalizeName(b.target))
+              || comparePortNames(a.targetPort, b.targetPort);
+        });
+    }
+
+    function buildLinkNodePairs(link) {
+      const pairs = [];
+      const seen = new Set();
+      const pushPair = (source, target) => {
+        if (!source || !target) return;
+        const key = `${source}\x01${target}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        pairs.push({ source, target });
+      };
+      (link.raw || []).forEach(item => pushPair(item.source, item.target));
+      if (pairs.length) return pairs;
+      const fromNode = state.displayNodeById && state.displayNodeById.get(link.from);
+      const toNode = state.displayNodeById && state.displayNodeById.get(link.to);
+      const fromMembers = (fromNode && Array.isArray(fromNode.members) && fromNode.members.length)
+        ? fromNode.members
+        : [link.from];
+      const toMembers = (toNode && Array.isArray(toNode.members) && toNode.members.length)
+        ? toNode.members
+        : [link.to];
+      fromMembers.forEach(source => {
+        toMembers.forEach(target => pushPair(source, target));
+      });
+      return pairs;
+    }
+
+    function aggregatePortNamesPointingTo(nodeId, targetNodeId) {
+      const node = state.nodeById.get(nodeId);
+      if (!node || !targetNodeId) return [];
+      return effectivePorts(node)
+        .map(port => normalizePortName(port && (port.ifName || port.ifDescr || port.ifIndex || '')))
+        .filter(name => isAggregatePortName(name))
+        .filter(name => {
+          const port = findPortByName(nodeId, name);
+          return peerTargetNameFromPort(port) === targetNodeId;
+        })
+        .sort(comparePortNames);
+    }
+
+    function collectAggregateAliasEntries(fromNodeId, toNodeId, entries, seen) {
+      const fromAggs = aggregatePortNamesPointingTo(fromNodeId, toNodeId);
+      const toAggs = aggregatePortNamesPointingTo(toNodeId, fromNodeId);
+      if (!fromAggs.length && !toAggs.length) return;
+      if (fromAggs.length) {
+        fromAggs.forEach((fromAgg, index) => {
+          addLinkDetailEntry(entries, seen, fromNodeId, fromAgg, toNodeId, toAggs[index] || toAggs[0] || '');
+        });
+        return;
+      }
+      toAggs.forEach(toAgg => {
+        addLinkDetailEntry(entries, seen, fromNodeId, '', toNodeId, toAgg);
+      });
+    }
+
     function buildLinkTable(link) {
-      const rows = link.raw.map(item => {
+      const rows = buildLinkDetailEntries(link).map(item => {
         const srcNode = state.nodeById.get(item.source);
         const tgtNode = state.nodeById.get(item.target);
         const srcPort = findPortByName(item.source, item.sourcePort);
         const tgtPort = findPortByName(item.target, item.targetPort);
-        const srcUp = portIsUp(srcPort);
-        const tgtUp = portIsUp(tgtPort);
-        const anyDown = !srcUp || !tgtUp;
+        const srcState = portStatusSnapshot(item.source, item.sourcePort, item.target, srcPort);
+        const tgtState = portStatusSnapshot(item.target, item.targetPort, item.source, tgtPort);
+        const anyDown = !srcState.up || !tgtState.up;
         return `<tr class="${anyDown ? 'alarm-row' : ''}">
           <td>${esc(srcNode ? (aliasFor(srcNode.id) || srcNode.label || srcNode.id) : item.source)}</td>
           <td>${esc(item.sourcePort || '-')}</td>
-          <td class="${srcUp ? 'port-up' : 'port-down'}">${srcUp ? 'UP' : 'DOWN'}</td>
+          <td class="${srcState.up ? 'port-up' : 'port-down'}">${srcState.text}</td>
           <td>${esc(srcPort ? (srcPort.speed_mbps || 0) : '-')}</td>
           <td>${esc(srcPort ? formatBytes(srcPort.transmit || 0) : '-')}</td>
           <td>${esc(srcPort ? formatBytes(srcPort.receive || 0) : '-')}</td>
           <td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>
           <td>${esc(tgtNode ? (aliasFor(tgtNode.id) || tgtNode.label || tgtNode.id) : item.target)}</td>
           <td>${esc(item.targetPort || '-')}</td>
-          <td class="${tgtUp ? 'port-up' : 'port-down'}">${tgtUp ? 'UP' : 'DOWN'}</td>
+          <td class="${tgtState.up ? 'port-up' : 'port-down'}">${tgtState.text}</td>
           <td>${esc(tgtPort ? (tgtPort.speed_mbps || 0) : '-')}</td>
           <td>${esc(tgtPort ? formatBytes(tgtPort.transmit || 0) : '-')}</td>
           <td>${esc(tgtPort ? formatBytes(tgtPort.receive || 0) : '-')}</td>
@@ -2297,8 +3350,15 @@
       const opts = { recordHistory: true, ...(options || {}) };
       ensureDetailVisible();
       setActiveMetric('');
+      if (link.kind === 'monitor' && link.monitorGroupId) {
+        showLineMonitorGroupDetail(link.monitorGroupId, options);
+        return;
+      }
       if (opts.recordHistory) rememberDetail({ type: 'link', id: link.id });
       activeDetail = { type: 'link', id: link.id };
+      selectedDisplayNodeId = '';
+      selectedLinkId = link.id;
+      applySelectionHighlight();
       const tableHtml = buildLinkTable(link);
       $('detail').innerHTML = `<div class="detail-title"><b>${esc((fromNode && fromNode.label) || link.from)} - ${esc((toNode && toNode.label) || link.to)}</b>${statusBadge(link.down)}</div>
         <div class="info-grid">
@@ -2345,12 +3405,15 @@
       if (state.faultIndex && state.faultIndex.rawDown) return state.faultIndex.rawDown.has(rawLinkKey(link));
       const srcPort = findPortByName(link.source, link.sourcePort);
       const tgtPort = findPortByName(link.target, link.targetPort);
-      return !portIsUp(srcPort) || !portIsUp(tgtPort);
+      const srcState = portStatusSnapshot(link.source, link.sourcePort, link.target, srcPort);
+      const tgtState = portStatusSnapshot(link.target, link.targetPort, link.source, tgtPort);
+      return !srcState.up || !tgtState.up;
     }
 
     function renderFaultDetail() {
       setActiveMetric('faults');
       selectedDisplayNodeId = '';
+      selectedLinkId = '';
       applySelectionHighlight();
       activeDetail = { type: 'metric', metric: 'faults' };
       const downNodeIds = (state.faultIndex && state.faultIndex.downNodeIds) || new Set();
@@ -2361,7 +3424,7 @@
       metricNodes.forEach(node => {
         effectivePorts(node).forEach(port => {
           if (portHasLinkedFault(node, port)) {
-            downPortRows.push(`<tr class="alarm-row"><td>${esc(aliasFor(node.id) || node.label || node.id)}</td><td>${esc(node.id)}</td><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="port-down">DOWN</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td></tr>`);
+            downPortRows.push(`<tr class="alarm-row"><td>${esc(aliasFor(node.id) || node.label || node.id)}</td><td>${esc(node.id)}</td><td>${esc(port.ifName || port.ifDescr || port.ifIndex || '-')}</td><td class="port-down">${esc(portStatusSnapshot(node.id, port.ifName || port.ifDescr || port.ifIndex || '', '', port).text)}</td><td>${esc(port.speed_mbps || '-')}</td><td>${esc(formatBytes(port.transmit || 0))}</td><td>${esc(formatBytes(port.receive || 0))}</td><td>${Math.max(Number(port.transmit_percent) || 0, Number(port.receive_percent) || 0).toFixed(2)}%</td></tr>`);
           }
         });
       });
@@ -2414,7 +3477,7 @@
       } else if (metric === 'links') {
         renderLinkList();
       } else if (metric === 'down') {
-        renderRawDeviceList({ text: '故障设备', metric }, metricNodes.filter(node => Number(node.status) !== 0));
+        renderRawDeviceList({ text: '故障设备', metric }, metricNodes.filter(node => deviceStatusIsDown(node)));
       } else if (metric === 'faults') {
         renderFaultDetail();
       } else if (metric === 'meth') {
@@ -2423,29 +3486,60 @@
     }
 
     async function loadAll() {
-      loading.style.display = 'grid';
-      const cfgRaw = await fetchJSON('/topology/api/config/topology_config', await fetchJSON('config/topology_config.json', {}));
-      state.baseConfig = cfgRaw || {};
-      state.config = mergeProfile(cfgRaw || {});
-      state.groupRules = await fetchJSON('/topology/api/config/group_rules', await fetchJSON('config/group_rules.json', { groups: [] }));
-      const archRaw = await fetchJSON('/topology/api/config/architecture', await fetchJSON('config/architecture_config.json', DEFAULT_ARCHITECTURE_CONFIG));
-      state.architectureConfig = normalizeArchitectureConfig(archRaw);
-      zoneDefinitions = state.architectureConfig.zones;
-      const topologyResult = await fetchJSONWithMeta('topology.json', { nodes: [] });
-      const linksResult = await fetchJSONWithMeta('links.json', []);
-      state.topology = topologyResult.data;
-      state.links = linksResult.data;
-      state.lastLoadedAt = new Date();
-      state.dataUpdatedAt = latestDate(topologyResult.updatedAt, linksResult.updatedAt) || state.lastLoadedAt;
-      state.showMeth = methToggle.checked || ((state.config.display || {}).showMethInterfaces === true);
-      methToggle.checked = state.showMeth;
-      state.sidebarCollapsed = !!(state.architectureConfig && state.architectureConfig.sidebar && state.architectureConfig.sidebar.default_collapsed);
-      $('page-title').textContent = (state.config.title || '集群网络拓扑') + ' - 架构视图';
-      document.title = $('page-title').textContent;
-      updateSidebarVisibility();
-      render();
-      scheduleAutoRefresh();
-      loading.style.display = 'none';
+      if (state.loadAllInFlight) return state.loadAllInFlight;
+      state.loadAllInFlight = (async () => {
+        loading.style.display = 'grid';
+        const cfgRaw = await fetchJSON('/topology/api/config/topology_config', null)
+          || await fetchJSON('config/topology_config.json', {});
+        state.baseConfig = cfgRaw || {};
+        state.config = mergeProfile(cfgRaw || {});
+        state.groupRules = await fetchJSON('/topology/api/config/group_rules', null)
+          || await fetchJSON('config/group_rules.json', { groups: [] });
+        const archRaw = await fetchJSON('/topology/api/config/architecture', null)
+          || await fetchJSON('config/architecture_config.json', DEFAULT_ARCHITECTURE_CONFIG);
+        state.architectureConfig = normalizeArchitectureConfig(archRaw);
+        zoneDefinitions = state.architectureConfig.zones;
+        applyRuntimeStatus(await fetchJSON('/topology/api/runtime/status', { datasets: {}, checked_at: null }));
+        const topologyResult = await fetchJSONWithMeta('topology.json', { nodes: [] });
+        const linksResult = await fetchJSONWithMeta('links.json', []);
+        const effectiveLinksResult = resolveEffectiveLinks(linksResult.data, topologyResult.data, state.runtimeStatus);
+        const monitorResult = lineMonitorEnabled()
+          ? await fetchJSONWithMeta('prometheus.json', { lines: [], last_updated: null })
+          : { data: { lines: [], last_updated: null }, updatedAt: null };
+        state.topology = topologyResult.data;
+        state.links = effectiveLinksResult.links;
+        state.lineMonitorData = monitorResult.data || { lines: [], last_updated: null };
+        state.lastLoadedAt = new Date();
+        state.topologyUpdatedAt = topologyResult.updatedAt;
+        state.linksUpdatedAt = effectiveLinksResult.usedFallback
+          ? topologyResult.updatedAt
+          : linksResult.updatedAt;
+        state.monitorUpdatedAt = monitorResult.updatedAt || parseDateValue(state.lineMonitorData.last_updated);
+        state.dataUpdatedAt = latestDate(state.topologyUpdatedAt, state.linksUpdatedAt, state.monitorUpdatedAt) || state.lastLoadedAt;
+        state.dataSourceError = computeLoadedDataSourceError(state.runtimeStatus, {
+          topologyUpdatedAt: state.topologyUpdatedAt,
+          linksUpdatedAt: state.linksUpdatedAt,
+          monitorUpdatedAt: state.monitorUpdatedAt,
+          linksSatisfied: effectiveLinksResult.usedFallback || state.links.length > 0
+        });
+        state.showMeth = methToggle.checked || ((state.config.display || {}).showMethInterfaces === true);
+        methToggle.checked = state.showMeth;
+        const adminLink = $('admin-link');
+        if (adminLink) adminLink.href = withClusterContext('/topology/config.html');
+        state.sidebarCollapsed = !!(state.architectureConfig && state.architectureConfig.sidebar && state.architectureConfig.sidebar.default_collapsed);
+        $('page-title').textContent = (state.config.title || '集群网络拓扑') + ' - 架构视图';
+        document.title = $('page-title').textContent;
+        updateSidebarVisibility();
+        render();
+        scheduleAutoRefresh();
+        scheduleLineMonitorRefresh();
+        loading.style.display = 'none';
+      })();
+      try {
+        return await state.loadAllInFlight;
+      } finally {
+        state.loadAllInFlight = null;
+      }
     }
 
     function scheduleAutoRefresh() {
@@ -2454,6 +3548,41 @@
       window.__modernRefreshTimer = window.setInterval(() => {
         if (document.hidden) return;
         loadAll();
+      }, intervalMs);
+    }
+
+    async function refreshLineMonitorData() {
+      if (state.lineMonitorRefreshInFlight) return state.lineMonitorRefreshInFlight;
+      state.lineMonitorRefreshInFlight = (async () => {
+        if (!lineMonitorEnabled()) {
+          window.clearInterval(window.__lineMonitorRefreshTimer);
+          state.lineMonitorData = { lines: [], last_updated: null };
+          state.monitorUpdatedAt = null;
+          applyRuntimeStatus(await fetchJSON('/topology/api/runtime/status', { datasets: {}, checked_at: null }));
+          render({ rebuild: true, animate: false });
+          return;
+        }
+        applyRuntimeStatus(await fetchJSON('/topology/api/runtime/status', { datasets: {}, checked_at: null }));
+        const result = await fetchJSONWithMeta('prometheus.json', { lines: [], last_updated: null });
+        state.lineMonitorData = result.data || { lines: [], last_updated: null };
+        state.monitorUpdatedAt = result.updatedAt || parseDateValue(state.lineMonitorData.last_updated);
+        state.dataUpdatedAt = latestDate(state.topologyUpdatedAt, state.linksUpdatedAt, state.monitorUpdatedAt) || state.lastLoadedAt || new Date();
+        render({ rebuild: true, animate: false });
+      })();
+      try {
+        return await state.lineMonitorRefreshInFlight;
+      } finally {
+        state.lineMonitorRefreshInFlight = null;
+      }
+    }
+
+    function scheduleLineMonitorRefresh() {
+      window.clearInterval(window.__lineMonitorRefreshTimer);
+      if (!lineMonitorEnabled()) return;
+      const intervalMs = Math.max(3000, Number(lineMonitorConfig().refresh_ms) || 5000);
+      window.__lineMonitorRefreshTimer = window.setInterval(() => {
+        if (document.hidden) return;
+        refreshLineMonitorData();
       }, intervalMs);
     }
 

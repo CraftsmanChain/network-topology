@@ -22,6 +22,8 @@ import (
 
 const releaseVersion = "v2.0.0"
 
+var serverWebRoot string
+
 func main() {
 	r := gin.Default()
 	r.Use(CORSMiddleware())
@@ -72,10 +74,7 @@ func main() {
 	if webRoot == "" {
 		webRoot = ".."
 	}
-	dataRoot := getDataRoot(webRoot)
-	configDir := getConfigDir()
-	// serve all files under web root (../) under /topology/web
-	topo.Static("/web", webRoot)
+	serverWebRoot = webRoot
 	// serve icons under /topology/icons to match front-end relative paths
 	topo.Static("/icons", filepath.Join(webRoot, "icons"))
 
@@ -94,44 +93,47 @@ func main() {
 	topo.GET("/modern.html", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "topology.html")) })
 	topo.GET("/topology-modern.html", func(c *gin.Context) { serveNoCacheFile(c, filepath.Join(webRoot, "topology.html")) })
 
-	// expose active config directory under /topology/config so frontends can fetch JSON directly
-	topo.Static("/config", configDir)
-
 	// provide links.json and prometheus.json if present; fallback to empty JSON
 	topo.GET("/links.json", func(c *gin.Context) {
-		p := filepath.Join(dataRoot, "links.json")
-		if _, err := os.Stat(p); err == nil {
-			c.File(p)
+		env, err := resolveEnvironment(c, webRoot)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		p = filepath.Join(webRoot, "links.json")
-		if _, err := os.Stat(p); err == nil {
-			c.File(p)
-			return
-		}
-		c.Data(http.StatusOK, "application/json", []byte("{}"))
+		serveFirstJSONFile(c, dataFileCandidates(env, webRoot, "links.json"), []byte("[]"))
 	})
 	topo.GET("/prometheus.json", func(c *gin.Context) {
-		p := filepath.Join(dataRoot, "prometheus.json")
-		if _, err := os.Stat(p); err == nil {
-			c.File(p)
+		env, err := resolveEnvironment(c, webRoot)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		p = filepath.Join(webRoot, "prometheus.json")
-		if _, err := os.Stat(p); err == nil {
-			c.File(p)
+		serveFirstJSONFile(c, dataFileCandidates(env, webRoot, "prometheus.json"), []byte("{\"lines\":[],\"last_updated\":null}"))
+	})
+	topo.GET("/api/runtime/status", func(c *gin.Context) {
+		env, err := resolveEnvironment(c, webRoot)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.Data(http.StatusOK, "application/json", []byte("{\"lines\":[],\"last_updated\":null}"))
+		serveFirstJSONFile(c, []string{
+			filepath.Join(env.DataRoot, "status.json"),
+		}, []byte("{\"datasets\":{},\"checked_at\":null}"))
 	})
 
 	// devices.json: serve if present at root or under config; fallback to empty list
 	topo.GET("/devices.json", func(c *gin.Context) {
+		env, err := resolveEnvironment(c, webRoot)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		candidates := []string{
-			filepath.Join(dataRoot, "devices.json"),
-			filepath.Join(dataRoot, "config", "devices.json"),
-			filepath.Join(webRoot, "devices.json"),
-			filepath.Join(webRoot, "config", "devices.json"),
+			filepath.Join(env.DataRoot, "devices.json"),
+			filepath.Join(env.DataRoot, "config", "devices.json"),
+		}
+		if env.Code == "" {
+			candidates = append(candidates, filepath.Join(webRoot, "devices.json"), filepath.Join(webRoot, "config", "devices.json"))
 		}
 		for _, p := range candidates {
 			if _, err := os.Stat(p); err == nil {
@@ -144,57 +146,43 @@ func main() {
 
 	// topology aliases for legacy paths
 	topo.GET("/topology_config.json", func(c *gin.Context) {
-		p := filepath.Join(configDir, "topology_config.json")
-		if _, err := os.Stat(p); err == nil {
-			c.File(p)
+		env, err := resolveEnvironment(c, webRoot)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		p = filepath.Join(webRoot, "config", "topology_config.json")
-		if _, err := os.Stat(p); err == nil {
-			c.File(p)
-			return
-		}
-		c.Data(http.StatusOK, "application/json", []byte("{}"))
+		serveFirstJSONFile(c, []string{
+			filepath.Join(env.ConfigDir, "topology_config.json"),
+			filepath.Join(webRoot, "config", "topology_config.json"),
+		}, []byte("{}"))
 	})
 	topo.GET("/topology.config.json", func(c *gin.Context) {
-		p := filepath.Join(configDir, "topology.config.json")
-		if _, err := os.Stat(p); err == nil {
-			c.File(p)
+		env, err := resolveEnvironment(c, webRoot)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		p = filepath.Join(webRoot, "config", "topology.config.json")
-		if _, err := os.Stat(p); err == nil {
-			c.File(p)
-			return
-		}
-		// fallback to topology_config.json
-		p2 := filepath.Join(configDir, "topology_config.json")
-		if _, err := os.Stat(p2); err == nil {
-			c.File(p2)
-			return
-		}
-		p2 = filepath.Join(webRoot, "config", "topology_config.json")
-		if _, err := os.Stat(p2); err == nil {
-			c.File(p2)
-			return
-		}
-		c.Data(http.StatusOK, "application/json", []byte("{}"))
+		serveFirstJSONFile(c, []string{
+			filepath.Join(env.ConfigDir, "topology.config.json"),
+			filepath.Join(webRoot, "config", "topology.config.json"),
+			filepath.Join(env.ConfigDir, "topology_config.json"),
+			filepath.Join(webRoot, "config", "topology_config.json"),
+		}, []byte("{}"))
 	})
 	topo.GET("/topology.json", func(c *gin.Context) {
-		// Prefer real topology data if present; fallback to debug; then empty graph
+		env, err := resolveEnvironment(c, webRoot)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		candidates := []string{
-			filepath.Join(dataRoot, "topology.json"),
-			filepath.Join(dataRoot, "topology-debug.json"),
-			filepath.Join(webRoot, "topology.json"),
-			filepath.Join(webRoot, "topology-debug.json"),
+			filepath.Join(env.DataRoot, "topology.json"),
+			filepath.Join(env.DataRoot, "topology-debug.json"),
 		}
-		for _, p := range candidates {
-			if _, err := os.Stat(p); err == nil {
-				c.File(p)
-				return
-			}
+		if env.Code == "" {
+			candidates = append(candidates, filepath.Join(webRoot, "topology.json"), filepath.Join(webRoot, "topology-debug.json"))
 		}
-		c.Data(http.StatusOK, "application/json", []byte("{\"nodes\":[],\"edges\":[]}"))
+		serveFirstJSONFile(c, candidates, []byte("{\"nodes\":[],\"edges\":[]}"))
 	})
 	topo.GET("/topology-debug.json", func(c *gin.Context) {
 		// try file at project root; fallback to empty nodes/edges
@@ -247,6 +235,25 @@ type LoginRequest struct {
 type LoginResponse struct {
 	Token     string `json:"token"`
 	ExpiresAt int64  `json:"expires_at"`
+}
+
+type EnvironmentRegistry struct {
+	Default      string            `json:"default"`
+	Environments []EnvironmentSpec `json:"environments"`
+}
+
+type EnvironmentSpec struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	ConfigDir string `json:"config_dir"`
+	DataRoot  string `json:"data_root"`
+}
+
+type ResolvedEnvironment struct {
+	Code      string
+	Name      string
+	ConfigDir string
+	DataRoot  string
 }
 
 func getJWTSecret() string {
@@ -341,17 +348,131 @@ func getDataRoot(webRoot string) string {
 	return root
 }
 
-func resolveConfigPath(name string) (string, error) {
+func getConfigBaseDir() string {
+	if dir := strings.TrimSpace(os.Getenv("CONFIG_BASE_DIR")); dir != "" {
+		return dir
+	}
+	dir := getConfigDir()
+	if dir == "" {
+		return filepath.Join("..", "config")
+	}
+	return dir
+}
+
+func getEnvironmentRegistryPath() string {
+	if path := strings.TrimSpace(os.Getenv("ENV_REGISTRY")); path != "" {
+		return path
+	}
+	return filepath.Join(getConfigBaseDir(), "environments.json")
+}
+
+func resolveFSPath(baseDir, value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Clean(filepath.Join(baseDir, value))
+}
+
+func loadEnvironmentRegistry() (EnvironmentRegistry, error) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("TOPOLOGY_MODE")), "single") {
+		return EnvironmentRegistry{}, nil
+	}
+	path := getEnvironmentRegistryPath()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return EnvironmentRegistry{}, nil
+		}
+		return EnvironmentRegistry{}, err
+	}
+	var registry EnvironmentRegistry
+	if err := json.Unmarshal(body, &registry); err != nil {
+		return EnvironmentRegistry{}, err
+	}
+	return registry, nil
+}
+
+func dataFileCandidates(env ResolvedEnvironment, webRoot, name string) []string {
+	paths := []string{filepath.Join(env.DataRoot, name)}
+	if env.Code == "" && env.DataRoot != webRoot {
+		paths = append(paths, filepath.Join(webRoot, name))
+	}
+	return paths
+}
+
+func defaultEnvironment(webRoot string) ResolvedEnvironment {
+	return ResolvedEnvironment{
+		Code:      "",
+		Name:      "",
+		ConfigDir: getConfigDir(),
+		DataRoot:  getDataRoot(webRoot),
+	}
+}
+
+func resolveEnvironment(c *gin.Context, webRoot string) (ResolvedEnvironment, error) {
+	registry, err := loadEnvironmentRegistry()
+	if err != nil {
+		return ResolvedEnvironment{}, err
+	}
+	if len(registry.Environments) == 0 {
+		return defaultEnvironment(webRoot), nil
+	}
+
+	requested := strings.TrimSpace(c.Query("cs"))
+	if requested == "" {
+		requested = strings.TrimSpace(registry.Default)
+	}
+	if requested == "" && len(registry.Environments) > 0 {
+		requested = strings.TrimSpace(registry.Environments[0].Code)
+	}
+
+	baseDir := filepath.Dir(getEnvironmentRegistryPath())
+	for _, item := range registry.Environments {
+		if strings.TrimSpace(item.Code) != requested {
+			continue
+		}
+		return ResolvedEnvironment{
+			Code:      strings.TrimSpace(item.Code),
+			Name:      strings.TrimSpace(item.Name),
+			ConfigDir: resolveFSPath(baseDir, item.ConfigDir),
+			DataRoot:  resolveFSPath(baseDir, item.DataRoot),
+		}, nil
+	}
+	return ResolvedEnvironment{}, fmt.Errorf("unknown environment cs=%s", requested)
+}
+
+func serveFirstJSONFile(c *gin.Context, candidates []string, fallback []byte) {
+	for _, path := range candidates {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err == nil {
+			c.File(path)
+			return
+		}
+	}
+	c.Data(http.StatusOK, "application/json", fallback)
+}
+
+func resolveConfigPathInDir(name, dir string) (string, error) {
 	file, ok := allowedNames[name]
 	if !ok {
 		return "", errors.New("unsupported config name")
 	}
-	return filepath.Join(getConfigDir(), file), nil
+	return filepath.Join(dir, file), nil
 }
 
 func getConfigHandler(c *gin.Context) {
 	name := c.Param("name")
-	path, err := resolveConfigPath(name)
+	env, err := resolveEnvironment(c, serverWebRoot)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	path, err := resolveConfigPathInDir(name, env.ConfigDir)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -371,7 +492,12 @@ func getConfigHandler(c *gin.Context) {
 
 func putConfigHandler(c *gin.Context) {
 	name := c.Param("name")
-	path, err := resolveConfigPath(name)
+	env, err := resolveEnvironment(c, serverWebRoot)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	path, err := resolveConfigPathInDir(name, env.ConfigDir)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -400,7 +526,12 @@ func putConfigHandler(c *gin.Context) {
 }
 
 func missingHandler(c *gin.Context) {
-	dir := getConfigDir()
+	env, err := resolveEnvironment(c, serverWebRoot)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	dir := env.ConfigDir
 	var missing []string
 	for name, file := range allowedNames {
 		p := filepath.Join(dir, file)
@@ -419,19 +550,18 @@ type HistoryEntry struct {
 	Size      int64  `json:"size"`
 }
 
-func historyDirFor(name string) (string, string, error) {
+func historyDirFor(name, base string) (string, string, error) {
 	file, ok := allowedNames[name]
 	if !ok {
 		return "", "", errors.New("unsupported config name")
 	}
-	base := getConfigDir()
 	dir := filepath.Join(base, ".history", file)
 	path := filepath.Join(base, file)
 	return dir, path, nil
 }
 
-func writeHistory(name string, content []byte, _ string) error {
-	dir, _, err := historyDirFor(name)
+func writeHistory(name, base string, content []byte, _ string) error {
+	dir, _, err := historyDirFor(name, base)
 	if err != nil {
 		return err
 	}
@@ -467,8 +597,8 @@ func writeHistory(name string, content []byte, _ string) error {
 	return nil
 }
 
-func listHistory(name string) ([]HistoryEntry, error) {
-	dir, _, err := historyDirFor(name)
+func listHistory(name, base string) ([]HistoryEntry, error) {
+	dir, _, err := historyDirFor(name, base)
 	if err != nil {
 		return nil, err
 	}
@@ -498,8 +628,8 @@ func listHistory(name string) ([]HistoryEntry, error) {
 	return out, nil
 }
 
-func rollbackHistory(name, timestamp string) error {
-	dir, path, err := historyDirFor(name)
+func rollbackHistory(name, timestamp, base string) error {
+	dir, path, err := historyDirFor(name, base)
 	if err != nil {
 		return err
 	}
@@ -522,7 +652,12 @@ func getActor(c *gin.Context) string {
 
 func listHistoryHandler(c *gin.Context) {
 	name := c.Param("name")
-	entries, err := listHistory(name)
+	env, err := resolveEnvironment(c, serverWebRoot)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	entries, err := listHistory(name, env.ConfigDir)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -536,12 +671,17 @@ type RollbackRequest struct {
 
 func rollbackHistoryHandler(c *gin.Context) {
 	name := c.Param("name")
+	env, err := resolveEnvironment(c, serverWebRoot)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	var req RollbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.Timestamp == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	if err := rollbackHistory(name, req.Timestamp); err != nil {
+	if err := rollbackHistory(name, req.Timestamp, env.ConfigDir); err != nil {
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "history not found"})
 			return
@@ -555,7 +695,12 @@ func rollbackHistoryHandler(c *gin.Context) {
 // Explicit backup: create a history snapshot from current config file
 func backupHistoryHandler(c *gin.Context) {
 	name := c.Param("name")
-	path, err := resolveConfigPath(name)
+	env, err := resolveEnvironment(c, serverWebRoot)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	path, err := resolveConfigPathInDir(name, env.ConfigDir)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -574,7 +719,7 @@ func backupHistoryHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json in current config"})
 		return
 	}
-	if err := writeHistory(name, b, getActor(c)); err != nil {
+	if err := writeHistory(name, env.ConfigDir, b, getActor(c)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "backup failed"})
 		return
 	}
@@ -583,9 +728,18 @@ func backupHistoryHandler(c *gin.Context) {
 
 // ===== users.local =====
 func readUsersLocal() (string, string, error) {
-	dir := getConfigDir()
-	p := filepath.Join(dir, ".users.local")
-	b, err := os.ReadFile(p)
+	candidates := []string{
+		filepath.Join(getConfigDir(), ".users.local"),
+		filepath.Join(getConfigBaseDir(), ".users.local"),
+	}
+	var b []byte
+	var err error
+	for _, path := range candidates {
+		b, err = os.ReadFile(path)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return "", "", err
 	}

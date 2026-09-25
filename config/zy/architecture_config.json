@@ -1,0 +1,172 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-21T00:00:00.000Z",
+  "refresh_ms": 360000,
+  "sidebar": {
+    "enabled": true,
+    "default_collapsed": false
+  },
+  "layout": {
+    "rows": [
+      ["security", "oob"],
+      ["fabric"]
+    ]
+  },
+  "zones": [
+    {
+      "id": "security",
+      "title": "安全出口区",
+      "subtitle": "防火墙 / 公网汇聚",
+      "column": "left",
+      "minH": 220,
+      "include_ids": [
+        "NXBHZY_102_-7-B-09-33U_FW01",
+        "NXBHZY_Backup_FW_02_102_7B-10",
+        "NXBHZY_102_-7-B-09/10-42U_Public_AGG01"
+      ],
+      "role_titles": {
+        "core": "安全设备",
+        "aggregate": "公网汇聚",
+        "access": "接入设备"
+      },
+      "section_rules": [
+        {
+          "id": "firewall",
+          "title": "防火墙",
+          "order": 1,
+          "include_regex": [
+            "FW"
+          ]
+        },
+        {
+          "id": "public-agg",
+          "title": "公网汇聚",
+          "order": 2,
+          "include_regex": [
+            "Public_AGG"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "oob",
+      "title": "带外管理区",
+      "subtitle": "管理交换 / 带外接入",
+      "column": "right",
+      "minH": 220,
+      "include_regex": [
+        "SW00B",
+        "PCOOB",
+        "OOB"
+      ],
+      "exclude_regex": [
+        "Public_AGG",
+        "FW"
+      ],
+      "role_titles": {
+        "core": "核心设备",
+        "aggregate": "管理交换",
+        "access": "带外接入"
+      },
+      "section_rules": [
+        {
+          "id": "oob-core",
+          "title": "管理交换",
+          "order": 1,
+          "include_regex": [
+            "SW00B",
+            "PCOOB"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fabric",
+      "title": "业务互联区",
+      "subtitle": "业务汇聚 / 业务接入 / 专线监控",
+      "column": "left",
+      "minH": 320,
+      "include_regex": [
+        "25Gnei",
+        "monitor:"
+      ],
+      "exclude_regex": [
+        "Public_AGG",
+        "FW",
+        "SW00B",
+        "PCOOB"
+      ],
+      "default": true,
+      "role_titles": {
+        "core": "核心设备",
+        "aggregate": "业务汇聚",
+        "access": "业务接入"
+      },
+      "section_rules": [
+        {
+          "id": "agg",
+          "title": "业务汇聚",
+          "order": 1,
+          "include_regex": [
+            "25Gnei_AGG"
+          ]
+        },
+        {
+          "id": "access",
+          "title": "业务接入",
+          "order": 2,
+          "include_regex": [
+            "25Gnei_ACC"
+          ]
+        },
+        {
+          "id": "line-monitor",
+          "title": "专线监控",
+          "order": 3,
+          "include_regex": [
+            "monitor:",
+            "专线"
+          ]
+        }
+      ]
+    }
+  ],
+  "clusters": [
+    {
+      "id": "default",
+      "title": "智元集群",
+      "order": 1,
+      "default": true
+    }
+  ],
+  "roles": [
+    {
+      "id": "core",
+      "title": "核心",
+      "order": 1,
+      "include_regex": [
+        "FW"
+      ]
+    },
+    {
+      "id": "aggregate",
+      "title": "汇聚",
+      "order": 2,
+      "include_regex": [
+        "AGG"
+      ]
+    },
+    {
+      "id": "access",
+      "title": "接入",
+      "order": 3,
+      "include_regex": [
+        "ACC",
+        "SW00B",
+        "PCOOB",
+        "monitor:"
+      ],
+      "default": true
+    }
+  ]
+}
