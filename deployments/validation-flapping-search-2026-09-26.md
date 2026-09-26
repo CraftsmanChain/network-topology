@@ -43,8 +43,30 @@ snapshot's own evaluation timestamp, not a later moving window:
 
 ## Multi Environment
 
-The shared collector, frontend and backend implement both deployment modes.
-The `10.255.171.88` deployment has **not** been updated for this feature yet;
-the current VPN only reaches the single environment. Its backup manifest
-continues to describe the previously deployed version. Deploy these same code
-files after switching VPN, preserving that node's registry and credentials.
+- Updated `ubuntu@10.255.171.88:/ops/web/topology-multi` to runtime source
+  revision `c83ca21` after the VPN switch. All 11 runtime source file hashes
+  match the single environment; the Linux service binary was rebuilt from
+  that revision and its deployed hash was verified.
+- URL: `http://10.255.171.88:8181/topology/?cs=zwzp`.
+- `topology-web.service` and `snmp.timer` active; health endpoint returns OK.
+- Full refresh completed at 17:57:10 Asia/Shanghai with every step successful:
+  321 devices and zero stale device snapshots. Proxy queries did encounter
+  occasional `QUERY_TIMEOUT` retries, but recovered during this refresh.
+- The shared pipeline subsequently published the 17:37:09 through 17:57:09
+  window with 16 changes on the same port, confirming scheduled collection
+  includes the new dataset rather than relying only on the deployment probe.
+- Existing configuration, source credentials and refresh enablement were
+  preserved. Only `zwzp` has active collection; `zpzw` remains its data alias.
+- Previous runtime code backup:
+  `/ops/web/.topology-multi-backup/flapping-search-c83ca21/code-before.tar.gz`.
+- Updated local sanitized configuration and runtime hashes are in
+  `deployments/multi/`; complete private recovery archives remain Git-ignored.
+- Proxy query verified at the snapshot's exact evaluation time: the
+  17:32:52 through 17:52:52 Asia/Shanghai window returned **14** changes for
+  `10.12.1.3 / 25GE1/0/18`, matching `flapping.json`, with no unmatched series.
+- Browser checks passed for name/IP search, keyboard selection, empty
+  results, device details, flapping details, full-column view and minimize;
+  no page or console errors. Desktop and mobile header layouts were checked.
+- `cs=zwzp` and `cs=zpzw` return the same snapshot; a disabled environment
+  with no snapshot returns unknown/stale rather than another environment's
+  data. An unknown environment code is rejected with HTTP 400.
