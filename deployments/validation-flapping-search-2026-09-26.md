@@ -70,3 +70,20 @@ snapshot's own evaluation timestamp, not a later moving window:
 - `cs=zwzp` and `cs=zpzw` return the same snapshot; a disabled environment
   with no snapshot returns unknown/stale rather than another environment's
   data. An unknown environment code is rejected with HTTP 400.
+
+### VM Near-Realtime Replay Caveat
+
+A later historical replay at `2026-09-26T09:57:09Z` returned 15 changes,
+whereas the original live query returned 16. The gateway preserved the `time`
+parameter (the returned evaluation timestamp matched it). Disabling cache
+and using an explicit `@ 1790416629` expression also returned 15. Evaluating
+at 30 seconds earlier with `changes(ifOperStatus[20m] @ 1790416599) > 5`
+returned 16, matching the captured snapshot.
+
+This observation is consistent with VM's documented default 30-second
+[query visibility delay](https://docs.victoriametrics.com/victoriametrics/keyconcepts/#query-latency),
+not a frontend count calculation or dropped gateway time parameter. Runtime
+code retains the exact requested rule and the source-returned count and
+timestamp. For historical replay, distinguish the source-returned evaluation
+timestamp from the effective near-realtime visibility window; do not assume
+an immediate query and a later historical replay must be byte-identical.
