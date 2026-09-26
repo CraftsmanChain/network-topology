@@ -205,7 +205,7 @@ def candidate_prom_urls():
     return DEFAULT_PROM_URLS
 
 
-def query_prometheus_result(query: str) -> Tuple[List[Dict], bool]:
+def query_prometheus_result(query: str, require_complete: bool = False) -> Tuple[List[Dict], bool]:
     urls = [ACTIVE_PROM_URL] if ACTIVE_PROM_URL else candidate_prom_urls()
     retry_count = request_retries()
     for prom_url in urls:
@@ -219,6 +219,8 @@ def query_prometheus_result(query: str) -> Tuple[List[Dict], bool]:
                 data = r.json()
                 if data.get("status") != "success" or not isinstance(data.get("data", {}).get("result"), list):
                     raise ValueError(f"监控查询返回无效结果: {data.get('error') or data.get('status')}")
+                if require_complete and (data.get("isPartial") or data.get("warnings")):
+                    raise ValueError("监控查询返回不完整结果")
                 return data["data"]["result"], True
             except Exception as e:
                 last_error = e

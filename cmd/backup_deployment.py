@@ -34,7 +34,7 @@ with tarfile.open(fileobj=sys.stdout.buffer, mode="w|gz") as archive:
             if os.path.exists(path):
                 archive.add(path, arcname="systemd/" + name + suffix)
     hashes = {}
-    for name in ("cmd/refresh.py", "cmd/multi_env_refresh.py", "cmd/snmp.py", "cmd/devices.py", "cmd/atomic_json.py", "cmd/lldp.go", "topology.html", "config.html", "login.html", "server/main.go", "server/topology-web"):
+    for name in ("cmd/refresh.py", "cmd/multi_env_refresh.py", "cmd/snmp.py", "cmd/devices.py", "cmd/flapping.py", "cmd/atomic_json.py", "cmd/lldp.go", "topology.html", "config.html", "login.html", "server/main.go", "server/topology-web"):
         path = os.path.join(root, name)
         if os.path.isfile(path):
             with open(path, "rb") as source:

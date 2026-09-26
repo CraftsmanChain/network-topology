@@ -256,6 +256,8 @@ def refresh_environment(spec: dict, secrets: dict, registry_dir: Path):
     lldp_ok = snmp_ok
     links_ok = snmp_ok and ensure_links(data_root, env, force=True)
     monitor_ok = snmp_ok and build_line_monitor_json(spec, config_dir, data_root)
+    flapping_ok = run_step(f"{code}-flapping", [sys.executable, str(ROOT / "cmd" / "flapping.py")], data_root, env)
+    flapping = load_json(data_root / "flapping.json", {})
     monitor_required = ((((load_topology_config(config_dir) or {}).get("features") or {}).get("line_monitors") or {}).get("enabled") is True)
     topology = load_json(data_root / "topology.json", {})
     nodes = topology.get("nodes", []) if isinstance(topology, dict) else []
@@ -266,6 +268,12 @@ def refresh_environment(spec: dict, secrets: dict, registry_dir: Path):
         "name": spec.get("name") or code,
         "checked_at": iso_now(),
         "datasets": {
+            "flapping": {
+                "required": False,
+                "updated_at": flapping.get("updated_at"),
+                "stale": not flapping_ok,
+                "error_after_sec": int(spec.get("topology_error_after_sec") or 900),
+            },
             "topology": {
                 "required": True,
                 "updated_at": file_mtime_iso(data_root / "topology.json"),
@@ -283,6 +291,7 @@ def refresh_environment(spec: dict, secrets: dict, registry_dir: Path):
             },
         },
         "steps": {
+            "flapping": flapping_ok,
             "devices": devices_ok,
             "snmp": snmp_ok,
             "lldp": lldp_ok,

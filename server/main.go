@@ -102,6 +102,7 @@ func main() {
 		}
 		serveFirstJSONFile(c, dataFileCandidates(env, webRoot, "links.json"), []byte("[]"))
 	})
+	topo.GET("/flapping.json", flappingHandler)
 	topo.GET("/prometheus.json", func(c *gin.Context) {
 		env, err := resolveEnvironment(c, webRoot)
 		if err != nil {
@@ -463,6 +464,16 @@ func resolveConfigPathInDir(name, dir string) (string, error) {
 		return "", errors.New("unsupported config name")
 	}
 	return filepath.Join(dir, file), nil
+}
+
+func flappingHandler(c *gin.Context) {
+	env, err := resolveEnvironment(c, serverWebRoot)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	setNoCacheHeaders(c)
+	serveFirstJSONFile(c, []string{filepath.Join(env.DataRoot, "flapping.json")}, []byte(`{"ports":[],"updated_at":null,"stale":true}`))
 }
 
 func getConfigHandler(c *gin.Context) {

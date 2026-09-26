@@ -14,13 +14,14 @@
   - `cmd/devices.py` 优先基于 `vmagent /api/v1/targets` 同步设备基线，并回退到监控中的网络设备 `up` 指标生成 `devices.json` 与 `devices-meta.json`
   - `cmd/refresh.py` 单环境、多环境共用的刷新入口，按配置选择数据源
   - `cmd/snmp.py` 采集端口状态、流量与 LLDP，结合接口描述生成链路，保留 DOWN 端口的连接
+  - `cmd/flapping.py` 查询近 20 分钟端口状态变化，输出独立的 `flapping.json`
   - `cmd/lldp.go` 保留供独立诊断使用，不再参与正式服务的链路写入
 - `config/` 配置文件与示例
   - `group_rules.json`、`architecture_config.json`、`topology_config.json`
 - `icons/` 设备与组图标资源
 - `examples/` 采集任务的 systemd 定时示例
 - 根目录下前端页面：`topology.html`、`topology-modern.html`、`config.html`、`login.html`、`debug.html`、`ethernet.html`
-- 数据文件（前端只读）：`devices.json`、`links.json`、`topology.json`
+- 数据文件（前端只读）：`devices.json`、`links.json`、`topology.json`、`flapping.json`
 - 调试/辅助数据：`devices-meta.json`、`links-raw.json`、`links-alias-raw.json`、`links-alias.json`
 
 ## 快速开始
@@ -41,6 +42,15 @@
 - `/topology/` 与 `/topology/topology.html` 默认进入架构拓扑视图，按区域、集群、角色聚合展示链路。
 - `/topology/modern.html` 与 `/topology/topology-modern.html` 兼容保留，也进入同一个架构视图。
 - `/topology/config.html` 为配置后台，`/topology/login.html` 为登录页。
+- 顶部搜索按设备名、别名或 IP 匹配原始设备，支持点击结果或键盘选择，直接进入设备详情。
+- 集群信息中的“抖动端口”使用 `changes(ifOperStatus[20m]) > 5`，点击查看交换机、IP、端口、变化次数、端口快照状态及统计窗口；支持展示全部列、最小化和跳转设备详情。
+
+### 抖动数据语义
+- 单环境直连 VM 与多环境代理共用采集代码和认证配置，按 IP + ifIndex 精确关联本环境设备清单。同一端口重复指标取最大次数，不累加。
+- 变化次数只表示状态切换次数，不等同于 DOWN；该统计不会改变设备或链路状态。管理接口的隐藏规则与页面现有开关一致。
+- 统计窗口为查询采样时刻之前的 20 分钟，而非浏览器打开时刻；`changes()` 不提供每次切换的时间，因此不展示虚构的最后切换时间。端口快照状态来自 `topology.json`，与抖动查询时刻可能不同。
+- 采集失败或 VM 返回部分结果时保留最后成功快照并标记过期；尚无成功数据时显示 `-`，过期计数附 `*`。成功的空结果才表示该窗口内没有符合条件的端口。
+- `snmp.timer` 驱动后台采集，页面默认 6 分钟读取缓存。`GET /topology/flapping.json?cs=...` 严格读取所选环境的数据，不回退到其它环境。
 
 ## 配置文件说明
 - `config/group_rules.json` 分组与样式覆盖规则。
@@ -61,7 +71,7 @@
   - 运行节点/端口采集：
     - `python3 cmd/snmp.py`
     - 只更新 `topology.json`；完整刷新请使用 `python3 cmd/refresh.py`
-  - 正式服务统一运行 `cmd/refresh.py`：设备清单 → 端口/邻居 → 链路解析 → 发布 `links.json` 与 `status.json`。
+  - 正式服务统一运行 `cmd/refresh.py`：设备清单 → 端口/邻居 → 链路解析 → 抖动查询 → 发布数据与 `status.json`。
   - 不要在正式数据目录另行运行 `cmd/lldp.go`，否则 LLDP-only 结果会覆盖包含 DOWN 链路的完整数据。
   - 如需只从现有 `topology.json` 的端口别名重建链路，可运行：
     - `python3 cmd/snmp.py --links-from-topology`

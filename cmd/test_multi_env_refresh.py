@@ -27,7 +27,7 @@ class LLDPRefreshTests(unittest.TestCase):
                 spec = {"code": "test", "config_dir": str(root), "data_root": str(root), "prom_query_url": source}
                 with patch.object(refresh, "run_step", return_value=True) as step, patch.object(refresh, "ensure_links", return_value=True) as links:
                     self.assertTrue(refresh.refresh_environment(spec, {}, root))
-                self.assertEqual([Path(call.args[1][1]).name for call in step.call_args_list], ["devices.py", "snmp.py"])
+                self.assertEqual([Path(call.args[1][1]).name for call in step.call_args_list], ["devices.py", "snmp.py", "flapping.py"])
                 self.assertTrue(links.call_args.kwargs["force"])
 
     def test_failed_link_derivation_does_not_publish_old_raw_links(self):

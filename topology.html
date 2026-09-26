@@ -32,7 +32,7 @@
     .shell {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 360px;
-      grid-template-rows: 56px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
       height: 100vh;
     }
     .shell.sidebar-collapsed {
@@ -44,7 +44,9 @@
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 0 18px;
+      padding: 10px 18px;
+      min-height: 56px;
+      flex-wrap: wrap;
       border-bottom: 1px solid var(--line);
       background: #0f172a;
     }
@@ -53,6 +55,7 @@
       align-items: baseline;
       gap: 14px;
       min-width: 0;
+      flex-wrap: wrap;
     }
     .title h1 {
       margin: 0;
@@ -64,7 +67,7 @@
     .title span {
       color: var(--muted);
       font-size: 12px;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
     }
     .actions {
       display: flex;
@@ -72,7 +75,33 @@
       gap: 10px;
       font-size: 13px;
       white-space: nowrap;
+      flex-wrap: wrap;
+      min-width: 0;
     }
+    .device-search { position: relative; width: 240px; max-width: 100%; }
+    .device-search input {
+      width: 100%; height: 34px; padding: 7px 10px;
+      color: var(--text); background: #08111f; border: 1px solid #475569;
+      border-radius: 6px; font: inherit;
+    }
+    .device-search input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .search-results {
+      position: absolute; top: calc(100% + 6px); left: 0;
+      width: 440px; max-width: calc(100vw - 36px); max-height: 320px;
+      overflow: auto; z-index: 100; background: #152032;
+      border: 1px solid #475569; border-radius: 6px; box-shadow: 0 8px 24px #0006;
+    }
+    .search-results [role="option"], .search-empty { padding: 10px 12px; white-space: normal; overflow-wrap: anywhere; }
+    .search-results [role="option"] { cursor: pointer; border-bottom: 1px solid var(--line); }
+    .search-results [aria-selected="true"], .search-results [role="option"]:hover { background: #164e63; }
+    .search-results strong, .search-results small { display: block; }
+    .search-results small { color: var(--muted); margin-top: 4px; }
+    .flapping-note { color: var(--muted); overflow-wrap: anywhere; line-height: 1.6; margin: 8px 0; }
+    .flapping-warning { color: #fde68a; }
+    .flapping-list .list-row { width: 100%; font: inherit; text-align: left; }
+    .flapping-list .list-row strong, .flapping-list .list-row small { display: block; white-space: normal; overflow-wrap: anywhere; }
+    .flapping-list .list-row small { margin-top: 4px; }
+    .port-table .device-detail-link { color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; text-align: left; }
     .actions a,
     .actions button {
       color: var(--text);
@@ -563,8 +592,12 @@
     @media (max-width: 768px) {
       .shell {
         grid-template-columns: 1fr;
-        grid-template-rows: 56px minmax(0, 1fr) 280px;
+        grid-template-rows: auto minmax(0, 1fr) 280px;
       }
+      .title { gap: 6px; }
+      .actions { width: 100%; }
+      .device-search { width: 100%; }
+      .search-results { width: 100%; max-height: 220px; }
       .side {
         border-left: 0;
         border-top: 1px solid var(--line);
@@ -583,6 +616,10 @@
         <span id="subtitle">分区聚合视图</span>
       </div>
       <div class="actions">
+        <div class="device-search">
+          <input id="device-search" type="search" placeholder="搜索设备名 / IP" aria-label="搜索设备名或 IP" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="device-search-results" autocomplete="off" />
+          <div id="device-search-results" class="search-results" role="listbox" aria-label="设备搜索结果" hidden></div>
+        </div>
         <label class="toggle"><input type="checkbox" id="toggle-meth" />显示管理接口</label>
         <button id="reload">刷新</button>
         <a id="admin-link" href="/topology/config.html">管理后台</a>
@@ -613,6 +650,7 @@
         <button class="metric" data-metric="down"><b id="metric-down">-</b><span>故障设备</span></button>
         <button class="metric" data-metric="faults"><b id="metric-fault-links">-</b><span>故障链路</span></button>
         <button class="metric" data-metric="meth"><b id="metric-meth">-</b><span>隐藏管理</span></button>
+        <button class="metric" data-metric="flapping"><b id="metric-flapping">-</b><span>抖动端口</span></button>
       </div>
       <div class="section">
         <h2>链路图例</h2>
@@ -651,6 +689,7 @@
       architectureConfig: null,
       baseConfig: {},
       topology: { nodes: [] },
+      flapping: { ports: [], stale: true, updated_at: null },
       links: [],
       allLinks: [],
       lineMonitorData: { lines: [], last_updated: null },
@@ -2751,6 +2790,9 @@
       $('metric-down').textContent = downNodeIds.size;
       $('metric-fault-links').textContent = state.displayFaultLinkCount || 0;
       $('metric-meth').textContent = state.showMeth ? 0 : state.hiddenMethLinks || 0;
+      const flappingStale = flappingIsStale();
+      $('metric-flapping').textContent = state.flapping.updated_at ? `${visibleFlappingPorts().length}${flappingStale ? '*' : ''}` : '-';
+      $('metric-flapping').parentElement.title = flappingStale ? '抖动数据未就绪或已过期，点击查看详情' : '近 20 分钟状态变化超过 5 次';
       const loadedAt = state.dataUpdatedAt
         ? ` / 更新时间 ${formatDateTime(state.dataUpdatedAt)}`
         : '';
@@ -3480,6 +3522,104 @@
       renderDetailState(activeDetail);
     }
 
+    function flappingIsStale(now = Date.now()) {
+      const data = state.flapping || {};
+      const dataset = (state.runtimeStatus.datasets || {}).flapping || {};
+      const updated = Date.parse(data.updated_at);
+      return !!data.stale || !!dataset.stale || !Number.isFinite(updated)
+        || now - updated > (Number(dataset.error_after_sec) || 900) * 1000;
+    }
+
+    function visibleFlappingPorts() {
+      return (state.flapping.ports || []).filter(row => {
+        if (!Number.isFinite(Number(row.changes)) || Number(row.changes) <= 5) return false;
+        const node = state.nodeById.get(row.device_id);
+        if (!node) return false;
+        const port = (node.ports || []).find(p => String(p.ifIndex) === String(row.ifIndex));
+        return state.showMeth || (port ? portAffectsFaultState(port)
+          : !isHiddenManagementPortName(row.port_name) && !isHiddenManagementPortName(row.ifDescr));
+      });
+    }
+
+    function renderFlappingDetail() {
+      ensureDetailVisible();
+      setActiveMetric('flapping');
+      selectedDisplayNodeId = '';
+      selectedLinkId = '';
+      applySelectionHighlight();
+      activeDetail = { type: 'metric', metric: 'flapping' };
+      const data = state.flapping;
+      const rows = visibleFlappingPorts();
+      const start = parseDateValue(data.window_start);
+      const end = parseDateValue(data.window_end);
+      const windowText = start && end ? `${formatDateTime(start)} 至 ${formatDateTime(end)}` : '尚无成功采集记录';
+      const stale = flappingIsStale();
+      const note = `<p class="flapping-note">统计窗口（20 分钟）：${esc(windowText)}<br>状态变化次数 &gt; 5${state.showMeth ? '' : ' · 已排除管理接口'}</p>
+        ${Number(data.unmatched_series) > 0 ? `<p class="flapping-note">未关联本环境设备清单的指标：${esc(data.unmatched_series)} 条（未计入）</p>` : ''}
+        ${stale ? '<p class="flapping-note flapping-warning">数据未就绪或已过期，不能据此判断当前抖动情况</p>' : ''}`;
+      const table = `<table class="port-table"><thead><tr><th>交换机</th><th>设备 IP</th><th>端口</th><th>变化次数</th><th>端口快照状态</th><th>统计开始</th><th>统计结束</th></tr></thead><tbody>${rows.map(row => {
+        const node = state.nodeById.get(row.device_id);
+        const port = (node.ports || []).find(p => String(p.ifIndex) === String(row.ifIndex));
+        const status = node.collection_stale || !port || port.status == null ? '未知' : portIsUp(port) ? 'UP' : 'DOWN';
+        const label = aliasFor(row.device_id) || node.label || row.device_id;
+        return `<tr><td><button class="device-detail-link" data-flapping-device="${esc(row.device_id)}">${esc(label)}</button>${label !== row.device_id ? `<br><small>${esc(row.device_id)}</small>` : ''}</td><td>${esc(row.ip)}</td><td>${esc(row.port_name)}</td><td>${esc(row.changes)}</td><td>${status}</td><td>${esc(start ? formatDateTime(start) : '-')}</td><td>${esc(end ? formatDateTime(end) : '-')}</td></tr>`;
+      }).join('') || `<tr><td colspan="7">${stale ? '暂无可用的最新抖动数据' : '当前统计窗口内无符合条件的端口'}</td></tr>`}</tbody></table>`;
+      const list = rows.map(row => `<button class="list-row" type="button" data-flapping-device="${esc(row.device_id)}"><span><strong>${esc(aliasFor(row.device_id) || row.device_id)}</strong><small>${esc(row.ip)} · ${esc(row.port_name)}</small></span><span class="badge warn">${esc(row.changes)} 次</span></button>`).join('')
+        || `<p class="flapping-note">${stale ? '暂无可用的最新抖动数据' : '当前统计窗口内无符合条件的端口'}</p>`;
+      $('detail').innerHTML = `<div class="detail-title"><b>抖动端口</b><span class="badge">${data.updated_at ? rows.length : '-'}</span></div>${note}
+        ${detailActionsHtml('<button id="flapping-expand" class="detail-btn" type="button">展示全部列</button>')}<div class="list flapping-list">${list}</div>`;
+      bindDetailBackButton();
+      bindFlappingDevices($('detail'));
+      $('flapping-expand').addEventListener('click', () => {
+        openDetailFullscreen('抖动端口', note + table);
+        bindFlappingDevices($('link-fs'));
+      });
+    }
+
+    function bindFlappingDevices(container) {
+      container.querySelectorAll('[data-flapping-device]').forEach(button => {
+        button.addEventListener('click', () => {
+          closeLinkFullscreen();
+          showRawDeviceDetail(button.dataset.flappingDevice);
+        });
+      });
+    }
+
+    function searchDevices(query) {
+      const term = String(query || '').trim().toLowerCase();
+      if (!term) return [];
+      return (state.topology.nodes || []).map(node => {
+        const fields = [node.id, node.label, node.ip, aliasFor(node.id)].map(value => String(value || '').toLowerCase());
+        return { node, rank: fields.includes(term) ? 0 : fields.some(value => value.startsWith(term)) ? 1 : 2,
+          matches: fields.some(value => value.includes(term)) };
+      }).filter(item => item.matches).sort((a, b) => a.rank - b.rank || String(a.node.id).localeCompare(String(b.node.id))).map(item => item.node);
+    }
+
+    function closeDeviceSearch() {
+      $('device-search-results').hidden = true;
+      $('device-search').setAttribute('aria-expanded', 'false');
+      $('device-search').removeAttribute('aria-activedescendant');
+    }
+
+    function renderDeviceSearch() {
+      const input = $('device-search');
+      const results = $('device-search-results');
+      if (!input.value.trim()) { closeDeviceSearch(); return; }
+      const matches = searchDevices(input.value);
+      results.innerHTML = matches.map((node, index) => `<div id="device-option-${index}" role="option" aria-selected="false" data-search-device="${esc(node.id)}"><strong>${esc(aliasFor(node.id) || node.label || node.id)}</strong><small>${esc(node.ip || '-')} · ${esc(node.id)}</small></div>`).join('')
+        || '<div class="search-empty" role="status">未找到匹配设备</div>';
+      results.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      input.removeAttribute('aria-activedescendant');
+    }
+
+    function selectSearchDevice(id) {
+      if (!id || !state.nodeById.has(id)) return;
+      closeDeviceSearch();
+      closeLinkFullscreen();
+      showRawDeviceDetail(id);
+    }
+
     function showMetric(metric, options) {
       const opts = { recordHistory: true, ...(options || {}) };
       if (opts.recordHistory) rememberDetail({ type: 'metric', metric });
@@ -3494,6 +3634,8 @@
         renderFaultDetail();
       } else if (metric === 'meth') {
         renderMethDetail();
+      } else if (metric === 'flapping') {
+        renderFlappingDetail();
       }
     }
 
@@ -3519,6 +3661,7 @@
           ? await fetchJSONWithMeta('prometheus.json', { lines: [], last_updated: null })
           : { data: { lines: [], last_updated: null }, updatedAt: null };
         state.topology = topologyResult.data;
+        state.flapping = await fetchJSON('flapping.json', { ...state.flapping, stale: true });
         state.links = effectiveLinksResult.links;
         state.lineMonitorData = monitorResult.data || { lines: [], last_updated: null };
         state.lastLoadedAt = new Date();
@@ -3543,6 +3686,7 @@
         document.title = $('page-title').textContent;
         updateSidebarVisibility();
         render();
+        if (document.activeElement === $('device-search')) renderDeviceSearch();
         scheduleAutoRefresh();
         scheduleLineMonitorRefresh();
         loading.style.display = 'none';
@@ -3597,6 +3741,31 @@
         refreshLineMonitorData();
       }, intervalMs);
     }
+
+    $('device-search').addEventListener('input', renderDeviceSearch);
+    $('device-search').addEventListener('focus', renderDeviceSearch);
+    $('device-search').addEventListener('keydown', event => {
+      if (event.key === 'Escape' || event.key === 'Tab') { closeDeviceSearch(); return; }
+      if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) return;
+      if ($('device-search-results').hidden) renderDeviceSearch();
+      const options = Array.from($('device-search-results').querySelectorAll('[role="option"]'));
+      if (!options.length) return;
+      event.preventDefault();
+      const index = options.findIndex(option => option.getAttribute('aria-selected') === 'true');
+      if (event.key === 'Enter') { selectSearchDevice(options[Math.max(0, index)].dataset.searchDevice); return; }
+      const next = index < 0 ? (event.key === 'ArrowDown' ? 0 : options.length - 1)
+        : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+      options.forEach((option, i) => option.setAttribute('aria-selected', String(i === next)));
+      $('device-search').setAttribute('aria-activedescendant', options[next].id);
+      options[next].scrollIntoView({ block: 'nearest' });
+    });
+    $('device-search-results').addEventListener('click', event => {
+      const option = event.target.closest('[data-search-device]');
+      if (option) selectSearchDevice(option.dataset.searchDevice);
+    });
+    document.addEventListener('click', event => {
+      if (!event.target.closest('.device-search')) closeDeviceSearch();
+    });
 
     methToggle.addEventListener('change', () => {
       state.showMeth = methToggle.checked;
