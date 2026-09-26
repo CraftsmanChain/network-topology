@@ -10,8 +10,8 @@
       "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/ab483f2d-a128-46c6-bd52-c72b890d9bec",
       "secret_ref": "slxz_ali_gateway_token",
       "prom_skip_tls_verify": true,
-      "refresh_enabled": false,
-      "topology_refresh_sec": 300,
+      "refresh_enabled": true,
+      "topology_refresh_sec": 180,
       "monitor_refresh_sec": 60,
       "topology_error_after_sec": 900,
       "monitor_error_after_sec": 180
@@ -25,8 +25,8 @@
       "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/f5e1f567-2044-4084-af27-f598de1d907c",
       "secret_ref": "slxz_zy_gateway_token",
       "prom_skip_tls_verify": true,
-      "refresh_enabled": false,
-      "topology_refresh_sec": 300,
+      "refresh_enabled": true,
+      "topology_refresh_sec": 180,
       "monitor_refresh_sec": 60,
       "topology_error_after_sec": 900,
       "monitor_error_after_sec": 180
@@ -43,7 +43,8 @@
       "topology_refresh_sec": 300,
       "monitor_refresh_sec": 60,
       "topology_error_after_sec": 7200,
-      "monitor_error_after_sec": 180
+      "monitor_error_after_sec": 180,
+      "refresh_enabled": true
     },
     {
       "code": "zpzw",
@@ -69,11 +70,11 @@
       "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/a414586b-5e43-41f2-adb4-13ac7a143711",
       "secret_ref": "yczy_gateway_token",
       "prom_skip_tls_verify": true,
-      "refresh_enabled": false,
-      "topology_refresh_sec": 300,
+      "refresh_enabled": true,
+      "topology_refresh_sec": 120,
       "monitor_refresh_sec": 60,
       "topology_error_after_sec": 900,
-      "monitor_error_after_sec": 180
+      "monitor_error_after_sec": 600
     }
   ]
 }

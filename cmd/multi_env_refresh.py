@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import fcntl
 import json
 import os
 import subprocess
@@ -231,6 +232,18 @@ def ensure_links(data_root: Path, env: dict, force=False):
 
 
 def refresh_environment(spec: dict, secrets: dict, registry_dir: Path):
+    data_root = resolve_path(registry_dir, spec.get("data_root"))
+    data_root.mkdir(parents=True, exist_ok=True)
+    with (data_root / ".refresh.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"[WARNING] refresh already running for data={data_root}", flush=True)
+            return False
+        return refresh_environment_unlocked(spec, secrets, registry_dir)
+
+
+def refresh_environment_unlocked(spec: dict, secrets: dict, registry_dir: Path):
     code = str(spec.get("code") or "").strip()
     if not code:
         return False

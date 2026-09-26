@@ -1,5 +1,5 @@
 [Unit]
-Description=Refresh topology data every 5 minutes
+Description=Legacy multi refresh timer (do not enable with TOPOLOGY_REFRESH_LOOP=1)
 
 [Timer]
 OnActiveSec=1min

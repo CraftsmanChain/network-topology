@@ -1,10 +1,10 @@
 [Unit]
-Description=Refresh topology data (configured environments)
+Description=Schedule independent topology environment refreshes
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
+Type=simple
 User=ubuntu
 WorkingDirectory=/ops/web/topology-multi
 Environment=PYTHONUNBUFFERED=1
@@ -14,4 +14,10 @@ Environment=ENV_REGISTRY=/ops/web/topology-multi/config/environments.json
 Environment=ENV_SOURCES_FILE=/ops/web/topology-multi/config/.env_sources.local.json
 EnvironmentFile=/ops/web/topology-multi/topology.env
 ExecStart=/usr/bin/python3 /ops/web/topology-multi/cmd/refresh.py
-TimeoutStartSec=0
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

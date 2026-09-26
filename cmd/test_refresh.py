@@ -27,6 +27,11 @@ class RefreshModeTests(unittest.TestCase):
             self.assertEqual(refresh.main(), 0)
             multi.assert_called_once_with()
 
+    def test_multi_scheduler_is_controlled_by_configuration(self):
+        with patch.dict(os.environ, {"TOPOLOGY_MODE": "multi", "TOPOLOGY_REFRESH_LOOP": "1"}, clear=True), patch.object(refresh, "run_scheduler", return_value=0) as loop:
+            self.assertEqual(refresh.main(), 0)
+            loop.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

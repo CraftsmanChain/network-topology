@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from multi_env_refresh import DEFAULT_REGISTRY, refresh_environment, run_once
+from refresh_scheduler import run_scheduler
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,8 @@ def main():
         if not registry.is_file():
             print(f"[ERROR] Multi-environment registry missing: {registry}", flush=True)
             return 2
+        if os.environ.get("TOPOLOGY_REFRESH_LOOP", "").lower() in {"1", "true", "yes"}:
+            return run_scheduler()
         return 0 if run_once() else 1
 
     spec = {

@@ -15,7 +15,12 @@ Both systemd services read `<deployment-root>/topology.env`:
   from that same topology using LLDP and interface descriptions. DOWN links
   must not disappear just because they no longer advertise LLDP neighbors.
 - `LLDP_REFRESH_SEC` controls single-mode neighbor refresh. The equivalent
-  registry field is `lldp_refresh_sec`. `snmp.timer` controls collection cadence.
+  registry field is `lldp_refresh_sec`. `snmp.timer` controls single-mode cadence.
+- Multi mode sets `TOPOLOGY_REFRESH_LOOP=1` and runs `snmp.service` as a
+  persistent scheduler, with `snmp.timer` disabled. Each environment's
+  `topology_refresh_sec` is its wait after completion; concurrency is capped by
+  `TOPOLOGY_REFRESH_WORKERS` (default 2). Aliases sharing a data directory are
+  collected only once. `refresh-schedule.json` preserves completion times.
 
 Use the service files and `topology.env` in `examples/` or `examples/multi/`
 when creating a new deployment. Keep the existing node's configuration and
@@ -53,7 +58,9 @@ as a credential backup; it is intentionally not recoverable from GitHub.
    recovery, inspect the private archive and restore the missing credential
    files with restrictive permissions; never serve or publish the archive.
 3. Run `systemctl daemon-reload`, restart `topology-web.service`, and start
-   `snmp.service`. Enable/start the captured `snmp.timer` after collection.
+   `snmp.service`. In single mode, enable/start the captured `snmp.timer` after
+   collection. In scheduled multi mode, disable `snmp.timer` and enable the
+   persistent `snmp.service` instead; do not run both scheduling mechanisms.
 4. Verify `/topology/api/health`, `/topology/api/runtime/status`, and the actual
    sample endpoints in `topology.json` and `links.json`.
 

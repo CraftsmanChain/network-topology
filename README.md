@@ -13,6 +13,7 @@
 - `cmd/` 数据采集脚本：
   - `cmd/devices.py` 优先基于 `vmagent /api/v1/targets` 同步设备基线，并回退到监控中的网络设备 `up` 指标生成 `devices.json` 与 `devices-meta.json`
   - `cmd/refresh.py` 单环境、多环境共用的刷新入口，按配置选择数据源
+  - `cmd/refresh_scheduler.py` 多环境独立计时调度，限制并发并防止重复采集
   - `cmd/snmp.py` 采集端口状态、流量与 LLDP，结合接口描述生成链路，保留 DOWN 端口的连接
   - `cmd/flapping.py` 查询近 20 分钟端口状态变化，输出独立的 `flapping.json`
   - `cmd/lldp.go` 保留供独立诊断使用，不再参与正式服务的链路写入
@@ -37,6 +38,15 @@
   - `CONFIG_DIR` 配置目录，默认 `../config`
   - `DATA_ROOT` 动态数据目录，默认等于 `WEB_ROOT`，可用于测试项目复用现有数据文件
   - `TOPOLOGY_MODE=single|multi` 指定单环境或多环境；`multi` 读取 `ENV_REGISTRY`（默认 `config/environments.json`）
+  - `TOPOLOGY_REFRESH_LOOP=1` 多环境启用常驻调度；`TOPOLOGY_REFRESH_WORKERS` 默认最多并发 2 个环境，`TOPOLOGY_REFRESH_TICK_SEC` 默认每 10 秒检查任务
+
+### 多环境独立刷新
+- `config/environments.json` 中每个独立环境设置 `refresh_enabled: true`，`topology_refresh_sec` 是本轮完成到下一轮开始的等待秒数，不包括本轮耗时。大环境不会阻塞所有小环境，超过并发上限时按最早应刷新时间排队。
+- 示例：银川智元等待 120 秒；算力小镇阿里、智元各等待 180 秒；中卫智谱等待 300 秒。`zpzw` 与 `zwzp` 共用数据目录，保持别名采集关闭。
+- `refresh_retry_sec` 控制失败后等待时间，默认 60 秒（不超过正常间隔）；`refresh_timeout_sec` 默认 1800 秒，超时会终止该环境任务及子进程。失败时沿用已有成功数据，不伪造新状态。
+- 每个数据目录用 `.refresh.lock` 防止手工采集与调度重复写入；`refresh-schedule.json` 记录耗时、完成时间和结果，服务重启后仍尊重已完成轮次的间隔。调度每次检查会重新读取环境注册表。
+- 聚合环境使用 `examples/multi/snmp.service` 常驻服务：设置上述调度变量后，停用旧 `snmp.timer`，启用并启动 `snmp.service`。单环境保持原有 oneshot + timer，不受影响。
+- 单独手工刷新仍可运行 `python3 cmd/multi_env_refresh.py --env yczy`。专线汇总与完整拓扑同轮生成，页面刷新频率不代表后台采集频率；告警过期阈值应大于等待间隔加正常采集耗时。
 
 ## 前端页面
 - `/topology/` 与 `/topology/topology.html` 默认进入架构拓扑视图，按区域、集群、角色聚合展示链路。
