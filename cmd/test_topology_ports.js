@@ -28,6 +28,14 @@ function context() {
   return ctx;
 }
 
+test('explicit DOWN cannot be overridden by historical traffic', () => {
+  const ctx = context();
+  assert.equal(ctx.portIsUp({ status: 1, transmit: 2600, receive: 1800 }), false);
+  assert.equal(ctx.portIsUp({ status: '1', transmit: 2600 }), false);
+  assert.equal(ctx.portIsUp({ status: 0, transmit: 0, receive: 0 }), true);
+  assert.equal(ctx.portIsUp({ status: null, transmit: 0, receive: 0 }), false);
+});
+
 test('duplicate descriptions cannot select a random interface or shadow a real name', () => {
   const ctx = context();
   const ports = [{ ifName: 'Eth1', ifAlias: 'shared' }, { ifName: 'Eth2', ifAlias: 'shared' }];

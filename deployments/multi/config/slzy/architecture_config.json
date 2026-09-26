@@ -1,0 +1,304 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-22T00:00:00.000Z",
+  "refresh_ms": 360000,
+  "sidebar": {
+    "enabled": true,
+    "default_collapsed": false
+  },
+  "layout": {
+    "rows": [
+      [
+        "mgmt",
+        "oob"
+      ],
+      [
+        "public",
+        "gc"
+      ],
+      [
+        "obs-biz",
+        "obs-calc"
+      ],
+      [
+        "storage"
+      ]
+    ]
+  },
+  "zones": [
+    {
+      "id": "mgmt",
+      "title": "带内管理区",
+      "subtitle": "MGT：管理汇聚 / 管理接入",
+      "column": "left",
+      "minH": 220,
+      "include_regex": [
+        "MGT"
+      ],
+      "exclude_regex": [
+        "NETOOB",
+        "OOB",
+        "public"
+      ],
+      "role_titles": {
+        "aggregate": "管理汇聚",
+        "access": "管理接入",
+        "device": "设备"
+      },
+      "section_rules": [
+        {
+          "id": "mgt-agg",
+          "title": "管理汇聚",
+          "order": 1,
+          "include_regex": [
+            "MGT-AGG"
+          ]
+        },
+        {
+          "id": "mgt-tor",
+          "title": "管理接入",
+          "order": 2,
+          "include_regex": [
+            "MGT-TOR"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "oob",
+      "title": "带外管理区",
+      "subtitle": "OOB / NETOOB：带外汇聚 / 带外接入",
+      "column": "right",
+      "minH": 220,
+      "include_regex": [
+        "NETOOB",
+        "OOB"
+      ],
+      "role_titles": {
+        "aggregate": "带外汇聚",
+        "access": "带外接入",
+        "device": "设备"
+      },
+      "section_rules": [
+        {
+          "id": "oob-agg",
+          "title": "带外汇聚",
+          "order": 1,
+          "include_regex": [
+            "OOB-AGG"
+          ]
+        },
+        {
+          "id": "oob-tor",
+          "title": "带外接入",
+          "order": 2,
+          "include_regex": [
+            "NETOOB-TOR",
+            "OOB-TOR"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "public",
+      "title": "公网区",
+      "subtitle": "public：公网汇聚 / 公网接入",
+      "column": "left",
+      "minH": 220,
+      "include_regex": [
+        "public"
+      ],
+      "role_titles": {
+        "aggregate": "公网汇聚",
+        "access": "公网接入",
+        "device": "设备"
+      },
+      "section_rules": [
+        {
+          "id": "public-agg",
+          "title": "公网汇聚",
+          "order": 1,
+          "include_regex": [
+            "public-AGG"
+          ]
+        },
+        {
+          "id": "public-tor",
+          "title": "公网接入",
+          "order": 2,
+          "include_regex": [
+            "public-TOR"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gc",
+      "title": "GC 区",
+      "subtitle": "GC：汇聚 / 接入",
+      "column": "right",
+      "minH": 220,
+      "include_regex": [
+        "GC"
+      ],
+      "exclude_regex": [
+        "NETOOB",
+        "OOB"
+      ],
+      "role_titles": {
+        "aggregate": "GC 汇聚",
+        "access": "GC 接入",
+        "device": "设备"
+      },
+      "section_rules": [
+        {
+          "id": "gc-agg",
+          "title": "GC 汇聚",
+          "order": 1,
+          "include_regex": [
+            "GC-AGG"
+          ]
+        },
+        {
+          "id": "gc-tor",
+          "title": "GC 接入",
+          "order": 2,
+          "include_regex": [
+            "GC-TOR"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "obs-biz",
+      "title": "对象存储业务网",
+      "subtitle": "Obs：对象存储汇聚 / TOR",
+      "column": "left",
+      "minH": 260,
+      "include_regex": [
+        "Obs"
+      ],
+      "exclude_regex": [
+        "Leaf",
+        "Spine"
+      ],
+      "default": true,
+      "role_titles": {
+        "aggregate": "对象存储汇聚",
+        "access": "对象存储接入",
+        "device": "设备"
+      },
+      "section_rules": [
+        {
+          "id": "obs-agg",
+          "title": "对象存储汇聚",
+          "order": 1,
+          "include_regex": [
+            "Obs-AGG"
+          ]
+        },
+        {
+          "id": "obs-tor",
+          "title": "对象存储 TOR",
+          "order": 2,
+          "include_regex": [
+            "Obs-TOR"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "obs-calc",
+      "title": "对象存储计算网",
+      "subtitle": "Obs：对象存储 Leaf / Spine",
+      "column": "right",
+      "minH": 260,
+      "include_regex": [
+        "Obs-Leaf",
+        "Obs-Spine"
+      ],
+      "role_titles": {
+        "aggregate": "对象存储 Spine",
+        "access": "对象存储 Leaf",
+        "device": "设备"
+      },
+      "section_rules": [
+        {
+          "id": "obs-leaf",
+          "title": "对象存储 Leaf",
+          "order": 1,
+          "include_regex": [
+            "Obs-Leaf"
+          ]
+        },
+        {
+          "id": "obs-spine",
+          "title": "对象存储 Spine",
+          "order": 2,
+          "include_regex": [
+            "Obs-Spine"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "storage",
+      "title": "存储区",
+      "subtitle": "Stor：存储 Spine",
+      "column": "right",
+      "minH": 260,
+      "include_regex": [
+        "Stor"
+      ],
+      "role_titles": {
+        "aggregate": "存储汇聚",
+        "access": "存储接入",
+        "device": "设备"
+      },
+      "section_rules": [
+        {
+          "id": "stor-spine",
+          "title": "存储 Spine",
+          "order": 1,
+          "include_regex": [
+            "Stor-Spine"
+          ]
+        }
+      ]
+    }
+  ],
+  "clusters": [
+    {
+      "id": "default",
+      "title": "算力小镇-智元集群",
+      "order": 1,
+      "default": true
+    }
+  ],
+  "roles": [
+    {
+      "id": "aggregate",
+      "title": "汇聚",
+      "order": 1,
+      "include_regex": [
+        "Spine",
+        "AGG"
+      ]
+    },
+    {
+      "id": "access",
+      "title": "接入",
+      "order": 2,
+      "include_regex": [
+        "TOR",
+        "Leaf"
+      ],
+      "default": true
+    },
+    {
+      "id": "device",
+      "title": "设备",
+      "order": 3
+    }
+  ]
+}

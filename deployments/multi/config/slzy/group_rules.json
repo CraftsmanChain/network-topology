@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-22T00:00:00.000Z",
+  "groups": [
+    {
+      "id": "SLZY-MGT-AGG",
+      "name": "SLZY-MGT-AGG",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*MGT-AGG-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-MGT-TOR",
+      "name": "SLZY-MGT-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*MGT-TOR-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-OOB-AGG",
+      "name": "SLZY-OOB-AGG",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*OOB-AGG-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-OOB-TOR",
+      "name": "SLZY-OOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*OOB-TOR-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [
+        ".*NETOOB-TOR-.*$"
+      ],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-NETOOB-TOR",
+      "name": "SLZY-NETOOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*NETOOB-TOR-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-PUBLIC-AGG",
+      "name": "SLZY-PUBLIC-AGG",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*public-AGG-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-PUBLIC-TOR",
+      "name": "SLZY-PUBLIC-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*public-TOR-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-GC-AGG",
+      "name": "SLZY-GC-AGG",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*GC-AGG-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-GC-TOR",
+      "name": "SLZY-GC-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*GC-TOR-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [
+        ".*GC-OOB-TOR-.*$",
+        ".*GC-NETOOB-TOR-.*$"
+      ],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-GC-OOB-TOR",
+      "name": "SLZY-GC-OOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*GC-OOB-TOR-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-GC-NETOOB-TOR",
+      "name": "SLZY-GC-NETOOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*GC-NETOOB-TOR-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-OBS-AGG",
+      "name": "SLZY-OBS-AGG",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*Obs-AGG-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-OBS-SPINE",
+      "name": "SLZY-OBS-SPINE",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*Obs-Spine.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-OBS-LEAF",
+      "name": "SLZY-OBS-LEAF",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*Obs-Leaf.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-OBS-TOR",
+      "name": "SLZY-OBS-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*Obs-TOR-.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "SLZY-STOR-SPINE",
+      "name": "SLZY-STOR-SPINE",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*Stor-Spine.*$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    }
+  ]
+}

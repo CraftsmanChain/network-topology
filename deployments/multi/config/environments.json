@@ -1,0 +1,79 @@
+{
+  "default": "zwzp",
+  "environments": [
+    {
+      "code": "slxz-ali",
+      "name": "算力小镇-阿里",
+      "source_type": "vm",
+      "config_dir": "slxz",
+      "data_root": "../runtime-data/slxz-ali",
+      "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/ab483f2d-a128-46c6-bd52-c72b890d9bec",
+      "secret_ref": "slxz_ali_gateway_token",
+      "prom_skip_tls_verify": true,
+      "refresh_enabled": false,
+      "topology_refresh_sec": 300,
+      "monitor_refresh_sec": 60,
+      "topology_error_after_sec": 900,
+      "monitor_error_after_sec": 180
+    },
+    {
+      "code": "slxz-zy",
+      "name": "算力小镇-智元",
+      "source_type": "vm",
+      "config_dir": "slzy",
+      "data_root": "../runtime-data/slxz-zy",
+      "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/f5e1f567-2044-4084-af27-f598de1d907c",
+      "secret_ref": "slxz_zy_gateway_token",
+      "prom_skip_tls_verify": true,
+      "refresh_enabled": false,
+      "topology_refresh_sec": 300,
+      "monitor_refresh_sec": 60,
+      "topology_error_after_sec": 900,
+      "monitor_error_after_sec": 180
+    },
+    {
+      "code": "zwzp",
+      "name": "中卫-智谱",
+      "source_type": "vm",
+      "config_dir": "zp",
+      "data_root": "../runtime-data/zwzp",
+      "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/7acb5eec-f778-4edf-a7ed-1a036bf67e43",
+      "secret_ref": "zwzp_gateway_token",
+      "prom_skip_tls_verify": true,
+      "topology_refresh_sec": 300,
+      "monitor_refresh_sec": 60,
+      "topology_error_after_sec": 7200,
+      "monitor_error_after_sec": 180
+    },
+    {
+      "code": "zpzw",
+      "name": "中卫-智谱",
+      "source_type": "vm",
+      "config_dir": "zp",
+      "data_root": "../runtime-data/zwzp",
+      "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/7acb5eec-f778-4edf-a7ed-1a036bf67e43",
+      "secret_ref": "zwzp_gateway_token",
+      "prom_skip_tls_verify": true,
+      "refresh_enabled": false,
+      "topology_refresh_sec": 300,
+      "monitor_refresh_sec": 60,
+      "topology_error_after_sec": 7200,
+      "monitor_error_after_sec": 180
+    },
+    {
+      "code": "yczy",
+      "name": "银川-智元",
+      "source_type": "prometheus",
+      "config_dir": "zy",
+      "data_root": "../runtime-data/yczy",
+      "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/a414586b-5e43-41f2-adb4-13ac7a143711",
+      "secret_ref": "yczy_gateway_token",
+      "prom_skip_tls_verify": true,
+      "refresh_enabled": false,
+      "topology_refresh_sec": 300,
+      "monitor_refresh_sec": 60,
+      "topology_error_after_sec": 900,
+      "monitor_error_after_sec": 180
+    }
+  ]
+}

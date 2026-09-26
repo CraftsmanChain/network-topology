@@ -1,7 +1,7 @@
 # Port Identity and Missing Data
 
 `topology.json` contains collected interface inventory and operational state.
-In gateway deployments, `snmp.py --links-from-topology` derives
+In both direct and gateway deployments, `snmp.py --links-from-topology` derives
 `links-alias-raw.json` and `links-alias.json`; `multi_env_refresh.py` publishes
 the filtered result as `links.json`. The architecture page fetches
 `topology.json` and `links.json` for the selected `cs` environment.
@@ -58,3 +58,7 @@ the configured monitoring source. A missing endpoint is unknown, not DOWN.
 The details table renders missing values neutrally and does not substitute
 zero utilization for unavailable measurements. Duplicate descriptions cannot
 overwrite exact interface identities in the browser's index.
+
+Explicit collected UP/DOWN state takes precedence over traffic rates. A rolling
+five-minute rate can remain positive after a port goes DOWN and must not turn
+that port green. Single and multi deployments share this same display rule.

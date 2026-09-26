@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "whitelist": [
+    {
+      "src_id": "CORE5-9",
+      "dst_id": "pod3-leaf2"
+    }
+  ],
+  "blacklist": [
+    {
+      "src_id": "NXDXA02F01-A01-01-22_CORE8-12",
+      "dst_id": "NXDXB01F02-D01-02-25_Group3_Spine2-1"
+    }
+  ]
+}

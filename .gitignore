@@ -8,3 +8,4 @@ server/lexun-gin-server
 runtime-data/
 config/.env_sources.local.json
 config/.users.local
+.local-backups/

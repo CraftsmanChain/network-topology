@@ -1056,7 +1056,13 @@
     }
 
     function portIsUp(port) {
-      return !!port && (Number(port.status) === 0 || Number(port.transmit) > 0 || Number(port.receive) > 0);
+      if (!port) return false;
+      // A five-minute traffic rate can remain positive after the port goes DOWN.
+      if (port.status != null && port.status !== '') {
+        const status = Number(port.status);
+        if (status === 0 || status === 1) return status === 0;
+      }
+      return Number(port.transmit) > 0 || Number(port.receive) > 0;
     }
 
     function portAffectsFaultState(port) {

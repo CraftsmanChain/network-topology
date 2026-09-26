@@ -1,0 +1,28 @@
+{
+  "host": "root@10.102.10.6",
+  "root": "/ops/web/topology",
+  "captured_at_utc": "20260926T035214Z",
+  "private_archive": ".local-backups/single-zwzp/20260926T035214Z.tar.gz",
+  "files_sha256": {
+    "config/architecture_config.json": "e47548424a2148fc3605ab18bae21c09939e155a2d3cefa2e22090bc4572683e",
+    "config/group_rules.json": "88c50258f11a7d571d86f1a155bda7e0641f47cba2cf4160b582a172b6aa8695",
+    "config/link_overrides.json": "435506a5eb7322c9f8cc378b05494e4cac39dce701da615932803ad5034395dd",
+    "config/port_aliases.json": "0bcb5588971403c904624f1dbb0d1ca3db180c77c67b2d38fcf1c353017d6bd8",
+    "config/positions.json": "2db307229997f9c2e1c4b670588b45535edb3074a6a173b2b6668dd08c88fcae",
+    "config/topology_config.json": "b8be5d998f299bd9ad012ed9a9264b0b375d25bb715bd1b742dd9c6b0815376d",
+    "icons/core-bad.png": "070ebc2c54ddd222c99d08766d888b6637a37234162585df81c3bda3b2da8f1a",
+    "icons/core.png": "67e6c6c4f4d3d26a88b743ffd31d1b6e600fb40e797e23401f9652cca89957d0",
+    "icons/firewall.png": "1dfac31a1d4bade279e78615702b47bb93bf199311b89d7e35df0271eb5b953e",
+    "icons/sigle-sw-bad.png": "1e2eb5aed4b3f0c6c22d084557e654dc1bed5759e9f1b37061068c52bcd920d0",
+    "icons/sigle-sw.png": "24ed375348e55ec75c9836f591a09ed9b655c26d9778a0323d2d55d3279b5881",
+    "icons/sw-bad.png": "416eb1a4283cb543ab9e151991d7f252401f9bc43971e1af9f84e826f1c1da7d",
+    "icons/sw.png": "9fe62f4c1316aaea994044c18195286904a0ce0743f9a6dc4655870b113fdf9c",
+    "icons/topology-switch-access.svg": "f29f7767bb18e7b4e781f14dba912b927e3c5f9a8d74cc12419e35d11afb135f",
+    "icons/topology-switch-agg.svg": "6b812a0e7b4ea2470106aacd1d1ff4aed83939def928a11e05787454d03ab13c",
+    "topology.env": "2e699fc0d714f8b0de5d1a13f81870153ef186094c49320d767d8c8f76bccd5d",
+    "systemd/snmp.service": "9196ca76ee3166d7672bcdb0487f2930461faf28e6a6220ef4fb48fe68aadb2d",
+    "systemd/snmp.timer": "4d4d00d0519b70614d235e4d38a30df212cec030a1306ffc152c5d39f5bc9bbf",
+    "systemd/topology-web.service": "8d58804c63ebb349afa24b43d60aa4afe37fd32585755e43e732984ad9b6126c",
+    "code-sha256.json": "971ae971b04fa93e2ed0c46b94c62d1be94c8104a621faeb479e4e144e46af80"
+  }
+}

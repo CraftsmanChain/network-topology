@@ -1113,7 +1113,7 @@ def write_links_from_topology(
         print(f"[WARNING] 端口别名链路过滤后为空，未更新 {filtered_path}")
 
     print(f"[INFO] 已基于 topology.json 端口别名更新链路到 {raw_path}/{filtered_path}: raw={len(raw_links)}, filtered={len(filtered_links)}")
-    return True
+    return bool(filtered_links)
 
 
 def load_topology_json(path="topology.json") -> Dict:
@@ -1238,9 +1238,8 @@ def main():
 if __name__ == "__main__":
     start = time.time()
     if "--links-from-topology" in sys.argv:
-        write_links_from_topology(load_topology_json())
+        exit_code = 0 if write_links_from_topology(load_topology_json()) else 1
     else:
         exit_code = main()
     print(f"[INFO] 执行耗时: {time.time() - start:.2f}s")
-    if "--links-from-topology" not in sys.argv:
-        raise SystemExit(exit_code)
+    raise SystemExit(exit_code)

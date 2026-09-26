@@ -4,8 +4,6 @@
 import argparse
 import json
 import os
-import platform
-import shutil
 import subprocess
 import sys
 import time
@@ -105,12 +103,11 @@ def build_env_vars(spec: dict, token: str, config_dir: Path):
     env["PROM_QUERY_URL"] = str(spec.get("prom_query_url") or "").strip()
     env["CONFIG_DIR"] = str(config_dir)
     vm_targets_url = str(spec.get("vm_targets_url") or "").strip()
-    if vm_targets_url:
-        env["VM_TARGETS_URL"] = vm_targets_url
+    env["VM_TARGETS_URL"] = vm_targets_url
+    env.pop("PROM_BEARER_TOKEN", None)
     if token:
         env["PROM_BEARER_TOKEN"] = token
-    if bool_env(spec.get("prom_skip_tls_verify")):
-        env["PROM_SKIP_TLS_VERIFY"] = "1"
+    env["PROM_SKIP_TLS_VERIFY"] = "1" if bool_env(spec.get("prom_skip_tls_verify")) else "0"
     return env
 
 
@@ -212,7 +209,7 @@ def build_line_monitor_json(spec: dict, config_dir: Path, data_root: Path):
     return True
 
 
-def ensure_links(data_root: Path, env: dict):
+def ensure_links(data_root: Path, env: dict, force=False):
     links_path = data_root / "links.json"
     topology_path = data_root / "topology.json"
     links_mtime = links_path.stat().st_mtime if links_path.exists() else 0
@@ -220,35 +217,17 @@ def ensure_links(data_root: Path, env: dict):
     topology_is_newer = topology_mtime > links_mtime
     if links_path.exists():
         payload = load_json(links_path, None)
-        if isinstance(payload, list) and payload and not topology_is_newer:
+        if not force and isinstance(payload, list) and payload and not topology_is_newer:
             return True
     if topology_path.exists():
-        run_step("links-from-topology", [sys.executable, str(ROOT / "cmd" / "snmp.py"), "--links-from-topology"], data_root, env)
-    filtered_candidates = [
-        data_root / "links-alias.json",
-        data_root / "links-raw.json",
-    ]
-    for candidate in filtered_candidates:
-        payload = load_json(candidate, [])
+        if not run_step("links-from-topology", [sys.executable, str(ROOT / "cmd" / "snmp.py"), "--links-from-topology"], data_root, env):
+            return False
+        payload = load_json(data_root / "links-alias.json", None)
         if isinstance(payload, list) and payload:
-            if candidate != links_path:
-                dump_json(links_path, payload)
+            dump_json(links_path, payload)
             return True
-    existing_payload = load_json(links_path, [])
-    if isinstance(existing_payload, list) and existing_payload:
-        print("[INFO] filtered links unavailable; keep existing links.json")
-        return True
-    if not links_path.exists():
-        dump_json(links_path, [])
-    return links_path.exists()
-
-
-def lldp_command():
-    binary = ROOT / "cmd" / "lldp"
-    if binary.exists() and os.access(binary, os.X_OK) and platform.system().lower() == "linux":
-        return [str(binary)]
-    go = shutil.which("go") or ("/snap/bin/go" if Path("/snap/bin/go").exists() else "go")
-    return [go, "run", str(ROOT / "cmd" / "lldp.go")]
+    print("[ERROR] no fresh derived links; retain existing links.json without marking success")
+    return False
 
 
 def refresh_environment(spec: dict, secrets: dict, registry_dir: Path):
@@ -261,25 +240,21 @@ def refresh_environment(spec: dict, secrets: dict, registry_dir: Path):
     token = str(secrets.get(spec.get("secret_ref"), "") or "").strip()
     env = build_env_vars(spec, token, config_dir)
     gateway = query_gateway_mode(env)
-    refresh_lldp = not gateway or lldp_refresh_due(spec, data_root)
-    if gateway:
-        env["PROM_QUERY_LLDP_DETAILS"] = "1" if refresh_lldp else "0"
+    lldp_spec = {"lldp_refresh_sec": 3600 if gateway else 0, **spec}
+    refresh_lldp = lldp_refresh_due(lldp_spec, data_root)
+    env["PROM_QUERY_LLDP_DETAILS"] = "1" if refresh_lldp else "0"
 
     print(f"[INFO] refresh env={code} config={config_dir} data={data_root} lldp={refresh_lldp}")
     devices_ok = run_step(f"{code}-devices", [sys.executable, str(ROOT / "cmd" / "devices.py")], data_root, env)
     snmp_ok = devices_ok and run_step(f"{code}-snmp", [sys.executable, str(ROOT / "cmd" / "snmp.py")], data_root, env)
-    if snmp_ok and gateway and refresh_lldp:
+    if snmp_ok and refresh_lldp:
         dump_json(data_root / "lldp-refresh.json", {"checked_at": iso_now()})
     topology_ok = devices_ok and snmp_ok
 
-    if not snmp_ok:
-        lldp_ok = False
-    elif query_gateway_mode(env):
-        print(f"[INFO] env={code} query-gateway mode; skip full LLDP query and derive links from topology.json")
-        lldp_ok = True
-    else:
-        lldp_ok = run_step(f"{code}-lldp", lldp_command(), data_root, env)
-    links_ok = snmp_ok and ensure_links(data_root, env)
+    # Both direct and gateway sources use inventory/LLDP/alias resolution. A
+    # separate LLDP-only writer would drop DOWN links whose neighbors vanished.
+    lldp_ok = snmp_ok
+    links_ok = snmp_ok and ensure_links(data_root, env, force=True)
     monitor_ok = snmp_ok and build_line_monitor_json(spec, config_dir, data_root)
     monitor_required = ((((load_topology_config(config_dir) or {}).get("features") or {}).get("line_monitors") or {}).get("enabled") is True)
     topology = load_json(data_root / "topology.json", {})

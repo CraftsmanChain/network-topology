@@ -1,0 +1,381 @@
+{
+  "version": 1,
+  "updatedAt": "2026-05-28T01:56:19.803Z",
+  "groups": [
+    {
+      "id": "YS-MGT-AGG",
+      "name": "YS-MGT-AGG",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*YS-MGT-AGG-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "YS-OOB-AGG",
+      "name": "YS-OOB-AGG",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*YS-OOB-AGG-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "YS-MGT-TOR",
+      "name": "YS-MGT-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*YS-MGT-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "YS-OOB-TOR",
+      "name": "YS-OOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*YS-OOB-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "YS-NETOOB-TOR",
+      "name": "YS-NETOOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*YS-NETOOB-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN-MGT-TOR",
+      "name": "CTYUN-MGT-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN-MGT-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN-NETOOB-TOR",
+      "name": "CTYUN-NETOOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN-NETOOB-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN1-Calc-Leaf01",
+      "name": "CTYUN1-Calc-Leaf01",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN1-Calc-Leaf01-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN1-Calc-Leaf02",
+      "name": "CTYUN1-Calc-Leaf02",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN1-Calc-Leaf02-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN1-Calc-Spine",
+      "name": "CTYUN1-Calc-Spine",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN1-Calc-Spine-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN1-Stor-CLeaf",
+      "name": "CTYUN1-Stor-CLeaf",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN1-Stor-CLeaf-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN1-Stor-SLeaf",
+      "name": "CTYUN1-Stor-SLeaf",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN1-Stor-SLeaf-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN1-Stor-Spine",
+      "name": "CTYUN1-Stor-Spine",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN1-Stor-Spine-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP-MGT-TOR",
+      "name": "ZP-MGT-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*MGT-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP-OOB-TOR",
+      "name": "ZP-OOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*ZP-OOB-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP-NETOOB-TOR",
+      "name": "ZP-NETOOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*ZP-NETOOB-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP2-Calc-Leaf01",
+      "name": "ZP2-Calc-Leaf01",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*ZP2-Calc-Leaf01-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP2-Calc-Leaf02",
+      "name": "ZP2-Calc-Leaf02",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*ZP2-Calc-Leaf02-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP2-Calc-Spine",
+      "name": "ZP2-Calc-Spine",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*ZP2-Calc-Spine-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP2-Stor-CLeaf",
+      "name": "ZP2-Stor-CLeaf",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*ZP2-Stor-CLeaf-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP2-Stor-Spine",
+      "name": "ZP2-Stor-Spine",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*ZP2-Stor-Spine-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "CTYUN-OOB-TOR",
+      "name": "CTYUN-OOB-TOR",
+      "icon_url": "",
+      "include_ids": [],
+      "include_regex": [
+        ".*CTYUN-OOB-TOR-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    },
+    {
+      "id": "ZP1-Calc-Spine",
+      "name": "ZP1-Calc-Spine",
+      "icon_url": "",
+      "include_ids": [
+        "304-J03-42U-Calc-Spine-01",
+        "304-J03-28U-Calc-Spine-03",
+        "204-J01-28U-Calc-Spine-19",
+        "204-J01-21U-Calc-Spine-20",
+        "304-J03-35U-Calc-Spine-02",
+        "304-J03-21U-Calc-Spine-04"
+      ],
+      "include_regex": [
+        ".*ZP1-Calc-Spine-\\d+$"
+      ],
+      "exclude_ids": [],
+      "exclude_regex": [],
+      "style_override": {
+        "forcedStatus": null,
+        "color": null,
+        "icon_url": null
+      }
+    }
+  ]
+}

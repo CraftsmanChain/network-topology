@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh topology data every 5 minutes
+
+[Timer]
+OnActiveSec=1min
+OnUnitInactiveSec=1min
+Unit=snmp.service
+
+[Install]
+WantedBy=timers.target
