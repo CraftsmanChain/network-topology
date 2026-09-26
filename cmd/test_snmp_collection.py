@@ -58,6 +58,22 @@ class PortStatusCollectionTests(unittest.TestCase):
         self.assertEqual(node["status"], 0)
         self.assertTrue(node["collection_stale"])
 
+    def test_partial_lldp_query_keeps_cached_neighbor(self):
+        def query(expr):
+            if expr.startswith("ifHighSpeed"):
+                return self.speed, True
+            if expr.startswith("ifOperStatus"):
+                return [{"metric": {"ifIndex": "7"}, "value": [0, "1"]}], True
+            if expr.startswith("lldpRemPortId"):
+                return [], False
+            return [], True
+
+        with patch.object(snmp, "query_prometheus_result", side_effect=query), patch.object(snmp, "should_query_lldp_details", return_value=True):
+            ports, complete = snmp.get_interface_data("10.0.0.1", self.cached)
+        self.assertTrue(complete)
+        self.assertEqual(ports[0]["lldp_peer_name"], "switch-b")
+        self.assertEqual(ports[0]["lldp_peer_port"], "Eth8")
+
     def test_atomic_json_write(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "topology.json"

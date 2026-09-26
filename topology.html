@@ -1696,12 +1696,18 @@
       const index = new Map();
       nodes.forEach(node => {
         const map = new Map();
+        const aliases = new Map();
+        const addUnique = (target, name, port) => {
+          const key = portKey(name);
+          if (!key) return;
+          if (target.has(key) && target.get(key) !== port) target.set(key, null);
+          else if (!target.has(key)) target.set(key, port);
+        };
         (node.ports || []).forEach(port => {
-          [port.ifName, port.ifDescr, port.ifAlias, port.ifIndex].forEach(name => {
-            const key = portKey(name);
-            if (key) map.set(key, port);
-          });
+          [port.ifName, port.ifDescr, port.ifIndex].forEach(name => addUnique(map, name, port));
+          addUnique(aliases, port.ifAlias, port);
         });
+        aliases.forEach((port, key) => { if (!map.has(key)) map.set(key, port); });
         index.set(node.id, map);
       });
       return index;
@@ -3319,22 +3325,22 @@
         const tgtPort = findPortByName(item.target, item.targetPort);
         const srcState = portStatusSnapshot(item.source, item.sourcePort, item.target, srcPort);
         const tgtState = portStatusSnapshot(item.target, item.targetPort, item.source, tgtPort);
-        const anyDown = !srcState.up || !tgtState.up;
+        const anyDown = (srcState.exists && !srcState.up) || (tgtState.exists && !tgtState.up);
         return `<tr class="${anyDown ? 'alarm-row' : ''}">
           <td>${esc(srcNode ? (aliasFor(srcNode.id) || srcNode.label || srcNode.id) : item.source)}</td>
           <td>${esc(item.sourcePort || '-')}</td>
-          <td class="${srcState.up ? 'port-up' : 'port-down'}">${srcState.text}</td>
+          <td class="${!srcState.exists ? 'port-muted' : (srcState.up ? 'port-up' : 'port-down')}">${srcState.text}</td>
           <td>${esc(srcPort ? (srcPort.speed_mbps || 0) : '-')}</td>
           <td>${esc(srcPort ? formatBytes(srcPort.transmit || 0) : '-')}</td>
           <td>${esc(srcPort ? formatBytes(srcPort.receive || 0) : '-')}</td>
-          <td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>
+          <td>${srcPort ? Math.max(srcPort.transmit_percent || 0, srcPort.receive_percent || 0).toFixed(2) + '%' : '-'}</td>
           <td>${esc(tgtNode ? (aliasFor(tgtNode.id) || tgtNode.label || tgtNode.id) : item.target)}</td>
           <td>${esc(item.targetPort || '-')}</td>
-          <td class="${tgtState.up ? 'port-up' : 'port-down'}">${tgtState.text}</td>
+          <td class="${!tgtState.exists ? 'port-muted' : (tgtState.up ? 'port-up' : 'port-down')}">${tgtState.text}</td>
           <td>${esc(tgtPort ? (tgtPort.speed_mbps || 0) : '-')}</td>
           <td>${esc(tgtPort ? formatBytes(tgtPort.transmit || 0) : '-')}</td>
           <td>${esc(tgtPort ? formatBytes(tgtPort.receive || 0) : '-')}</td>
-          <td>${tgtPort ? Math.max(tgtPort.transmit_percent || 0, tgtPort.receive_percent || 0).toFixed(2) : '0.00'}%</td>
+          <td>${tgtPort ? Math.max(tgtPort.transmit_percent || 0, tgtPort.receive_percent || 0).toFixed(2) + '%' : '-'}</td>
         </tr>`;
       }).join('');
       return `<table class="port-table">

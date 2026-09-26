@@ -497,8 +497,12 @@ def get_interface_data(instance, cached_ports=None):
 
     loc_port_data, loc_ok = query_prometheus_result(loc_port_query)
     rem_name_data, rem_name_ok = query_prometheus_result(rem_name_query)
-    rem_desc_data, _ = query_prometheus_result(rem_desc_query)
-    rem_id_data, _ = query_prometheus_result(rem_id_query)
+    rem_desc_data, rem_desc_ok = query_prometheus_result(rem_desc_query)
+    rem_id_data, rem_id_ok = query_prometheus_result(rem_id_query)
+
+    if not all((loc_ok, rem_name_ok, rem_desc_ok, rem_id_ok)):
+        print(f"[WARNING] {instance} LLDP 查询不完整，保留缓存邻居，避免拼接部分查询结果")
+        return list(ports.values()), missing_status == 0
 
     if loc_ok and rem_name_ok:
         for port in ports.values():
@@ -553,8 +557,7 @@ def get_interface_data(instance, cached_ports=None):
         port["lldp_peer_name"] = peer_name
         peer_port = rem_desc_by_num.get(local_num, "")
         peer_port_id = rem_id_by_num.get(local_num, "")
-        if peer_port_id and (not peer_port or peer_port.startswith("Link-to-")):
-            peer_port = peer_port_id
+        peer_port = select_lldp_peer_port(peer_port, peer_port_id)
         if not peer_port:
             peer_port = cached_by_index.get(str(port.get("ifIndex")), {}).get("lldp_peer_port", "")
         if peer_port:
@@ -715,8 +718,7 @@ def collect_all_interface_data():
             port["lldp_peer_name"] = peer_name
             peer_port = (rem_desc_by_num.get(instance) or {}).get(local_num, "")
             peer_port_id = (rem_id_by_num.get(instance) or {}).get(local_num, "")
-            if peer_port_id and (not peer_port or peer_port.startswith("Link-to-")):
-                peer_port = peer_port_id
+            peer_port = select_lldp_peer_port(peer_port, peer_port_id)
             if peer_port:
                 port["lldp_peer_port"] = peer_port
 
@@ -832,6 +834,8 @@ def looks_like_port_name(name: str) -> bool:
         "twentyfivegigabitethernet",
         "tengige",
         "tengigabitethernet",
+        "ten-gigabitethernet",
+        "xgigabitethernet",
         "gigabitethernet",
         "ethernet",
         "eth-trunk",
@@ -967,30 +971,98 @@ def link_key(source: str, source_port: str, target: str, target_port: str) -> st
     return f"{right}\x01{left}"
 
 
-def build_links_from_topology(topology: Dict) -> Tuple[List[Dict], List[Dict]]:
+def interface_key(name: str) -> str:
+    # Expand vendor abbreviations without changing slot/breakout numbering.
+    return port_key(normalize_port_name(name))
+
+
+def select_lldp_peer_port(description: str, port_id: str) -> str:
+    # PortDesc can be arbitrary or repeated text; a named PortId is authoritative.
+    if port_id and (looks_like_port_name(port_id) or not description or description.startswith("Link-to-")):
+        return port_id
+    return description
+
+
+def interface_name(port: Dict) -> str:
+    return str(port.get("ifDescr") or port.get("ifName") or f"if{port.get('ifIndex', '')}").strip()
+
+
+def build_links_from_topology(topology: Dict, port_aliases: Dict = None) -> Tuple[List[Dict], List[Dict]]:
     nodes = topology.get("nodes", []) if isinstance(topology, dict) else []
     known_nodes = {node.get("id", "") for node in nodes if node.get("id")}
     node_lookup = build_node_name_lookup(nodes)
     raw_links = []
     filtered_links = []
     seen = set()
+    inventory = {}
+    descriptions = {}
+    reciprocal = {}
+    peers = {}
+    for node in nodes:
+        node_id = node.get("id", "")
+        index = inventory.setdefault(node_id, {})
+        for port in node.get("ports", []):
+            alias_key = interface_key(port.get("ifAlias"))
+            if alias_key:
+                descriptions.setdefault(node_id, {}).setdefault(alias_key, []).append(port)
+            for name in (port.get("ifName"), port.get("ifDescr")):
+                key = interface_key(name)
+                if key:
+                    candidates = index.setdefault(key, [])
+                    if not any(candidate is port for candidate in candidates):
+                        candidates.append(port)
+            target = (port.get("lldp_peer_name") or "").strip()
+            target_port = normalize_port_name(port.get("lldp_peer_port") or "")
+            if not target or not target_port:
+                target, target_port = parse_link_alias(port.get("ifAlias", ""), known_nodes, node_lookup)
+            target = resolve_alias_target_name(target, known_nodes, node_lookup) or target
+            peers[id(port)] = (target, target_port)
+            if target and target_port:
+                reciprocal.setdefault((node_id, target, interface_key(target_port)), []).append(port)
+
+    def unique_port(node_id, name):
+        candidates = inventory.get(node_id, {}).get(interface_key(name), [])
+        return candidates[0] if len(candidates) == 1 else None
+
+    def resolve_port(source, source_port, target, reported):
+        match = unique_port(target, reported)
+        if match is not None:
+            return interface_name(match), "inventory"
+        aliases = (port_aliases or {}).get(target, {})
+        for alias, actual in aliases.items():
+            if interface_key(alias) == interface_key(reported):
+                match = unique_port(target, actual)
+                if match is not None:
+                    return interface_name(match), "configured-alias"
+                return reported, "unresolved"
+        # A reverse reference must identify this exact source interface, uniquely.
+        candidates = []
+        for name in (source_port.get("ifName"), source_port.get("ifDescr")):
+            for candidate in reciprocal.get((target, source, interface_key(name)), []):
+                if not any(existing is candidate for existing in candidates):
+                    candidates.append(candidate)
+        if len(candidates) == 1:
+            return interface_name(candidates[0]), "reciprocal"
+        candidates = descriptions.get(target, {}).get(interface_key(reported), [])
+        if len(candidates) == 1:
+            return interface_name(candidates[0]), "unique-description"
+        return reported, "unresolved"
 
     for node in nodes:
         source = node.get("id", "")
         if not source:
             continue
         for port in node.get("ports", []):
-            target = (port.get("lldp_peer_name") or "").strip()
-            target_port = normalize_port_name(port.get("lldp_peer_port") or "")
-            if not target or not target_port:
-                target, target_port = parse_link_alias(port.get("ifAlias", ""), known_nodes, node_lookup)
+            target, target_port = peers[id(port)]
             if not target or not target_port:
                 continue
             resolved_target = resolve_alias_target_name(target, known_nodes, node_lookup) or target
 
-            source_port = normalize_port_name(port.get("ifDescr") or port.get("ifName") or f"if{port.get('ifIndex', '')}")
+            source_port = interface_name(port)
             if not source_port:
                 continue
+            reported_port = target_port
+            target_port, resolution = resolve_port(source, port, resolved_target, reported_port)
 
             key = link_key(source, source_port, resolved_target, target_port)
             if key in seen:
@@ -1003,6 +1075,9 @@ def build_links_from_topology(topology: Dict) -> Tuple[List[Dict], List[Dict]]:
                 "target": resolved_target,
                 "targetPort": target_port
             }
+            if reported_port != target_port:
+                link["targetPortReported"] = reported_port
+                link["targetPortResolution"] = resolution
             raw_links.append(link)
             if (
                 resolved_target in known_nodes
@@ -1019,7 +1094,13 @@ def write_links_from_topology(
     raw_path: str = "links-alias-raw.json",
     filtered_path: str = "links-alias.json",
 ) -> bool:
-    raw_links, filtered_links = build_links_from_topology(topology)
+    config_dir = os.environ.get("CONFIG_DIR") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
+    aliases_path = os.path.join(config_dir, "port_aliases.json")
+    port_aliases = {}
+    if os.path.exists(aliases_path):
+        with open(aliases_path, encoding="utf-8") as handle:
+            port_aliases = json.load(handle).get("aliases", {})
+    raw_links, filtered_links = build_links_from_topology(topology, port_aliases)
     if not raw_links:
         print(f"[WARNING] 未从 topology.json 的端口别名解析到链路，未更新 {raw_path} 与 {filtered_path}")
         return False

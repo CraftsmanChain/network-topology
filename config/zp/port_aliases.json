@@ -1,0 +1,8 @@
+{
+  "description": "Exact device-scoped interface-name corrections; never override operational state. CORE6-14 port 1/0/62 refers to Spine8-6 port 1/0/37, whose actual inventory name is FH0/37. The reverse description includes an extra slot (1/1/0/62), so automatic reciprocal resolution is deliberately not used.",
+  "aliases": {
+    "NXDXB01F02-D01-11-20_Group3_Spine8-6": {
+      "FourHundredGigE1/0/37": "FHGigabitEthernet 0/37"
+    }
+  }
+}
