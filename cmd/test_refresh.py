@@ -25,12 +25,12 @@ class RefreshModeTests(unittest.TestCase):
     def test_multi_uses_registry(self):
         with patch.dict(os.environ, {"TOPOLOGY_MODE": "multi"}, clear=True), patch.object(refresh, "run_once", return_value=True) as multi:
             self.assertEqual(refresh.main(), 0)
-            multi.assert_called_once_with()
+            multi.assert_called_once_with(None, scheduled=True)
 
-    def test_multi_scheduler_is_controlled_by_configuration(self):
-        with patch.dict(os.environ, {"TOPOLOGY_MODE": "multi", "TOPOLOGY_REFRESH_LOOP": "1"}, clear=True), patch.object(refresh, "run_scheduler", return_value=0) as loop:
+    def test_multi_timer_selects_one_environment(self):
+        with patch.dict(os.environ, {"TOPOLOGY_MODE": "multi", "TOPOLOGY_REFRESH_ENV": "yczy"}, clear=True), patch.object(refresh, "run_once", return_value=True) as collect:
             self.assertEqual(refresh.main(), 0)
-            loop.assert_called_once_with()
+            collect.assert_called_once_with(["yczy"], scheduled=True)
 
 
 if __name__ == "__main__":

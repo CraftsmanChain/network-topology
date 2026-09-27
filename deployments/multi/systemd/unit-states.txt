@@ -1,0 +1,9 @@
+snmp.service         static   -
+snmp@.service        static   -
+topology-web.service enabled  enabled
+snmp.timer           disabled enabled
+snmp@.timer          indirect enabled
+snmp@slxz-ali.timer enabled
+snmp@slxz-zy.timer enabled
+snmp@yczy.timer enabled
+snmp@zwzp.timer enabled

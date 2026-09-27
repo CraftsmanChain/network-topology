@@ -18,21 +18,38 @@ CONFIG_NAMES = {
     "topology_config.json", "architecture_config.json", "group_rules.json",
     "positions.json", "link_overrides.json", "port_aliases.json", "environments.json",
 }
-SERVICE_NAMES = {"snmp.service", "snmp.timer", "topology-web.service"}
+SERVICE_NAMES = {"snmp.service", "snmp.timer", "snmp@.service", "snmp@.timer", "topology-web.service"}
+
+
+def is_service_name(name):
+    return name in SERVICE_NAMES or bool(re.fullmatch(r"snmp@[a-zA-Z0-9_-]+\.(service|timer)", name))
+
+
 SENSITIVE = re.compile(r"password|passwd|token|authorization|credential|community|secret", re.I)
 REMOTE_CAPTURE = r'''
-import hashlib, io, json, os, sys, tarfile
+import glob, hashlib, io, json, os, subprocess, sys, tarfile
 root = os.path.abspath(sys.argv[1])
 with tarfile.open(fileobj=sys.stdout.buffer, mode="w|gz") as archive:
     for name in ("config", "icons", "topology.env", ".env"):
         path = os.path.join(root, name)
         if os.path.exists(path):
             archive.add(path, arcname=name)
-    for name in ("snmp.service", "snmp.timer", "topology-web.service"):
+    names = {"snmp.service", "snmp.timer", "snmp@.service", "snmp@.timer", "topology-web.service"}
+    for path in glob.glob("/etc/systemd/system/snmp@*"):
+        name = os.path.basename(path)
+        names.add(name[:-2] if name.endswith(".d") else name)
+    for name in sorted(names):
         for suffix in ("", ".d"):
             path = "/etc/systemd/system/" + name + suffix
             if os.path.exists(path):
                 archive.add(path, arcname="systemd/" + name + suffix)
+    units = subprocess.run(["systemctl", "list-unit-files", "snmp*", "topology-web.service", "--no-pager", "--no-legend"], capture_output=True, text=True, check=True).stdout
+    for path in sorted(glob.glob("/etc/systemd/system/timers.target.wants/snmp@*.timer")):
+        units += os.path.basename(path) + " enabled\n"
+    data = units.encode()
+    info = tarfile.TarInfo("systemd/unit-states.txt")
+    info.size = len(data)
+    archive.addfile(info, io.BytesIO(data))
     hashes = {}
     for name in ("cmd/refresh.py", "cmd/refresh_scheduler.py", "cmd/multi_env_refresh.py", "cmd/snmp.py", "cmd/devices.py", "cmd/flapping.py", "cmd/atomic_json.py", "cmd/lldp.go", "topology.html", "config.html", "login.html", "server/main.go", "server/topology-web"):
         path = os.path.join(root, name)
@@ -89,10 +106,10 @@ def export_archive(archive_path, destination):
             if not member.isfile() or path.is_absolute() or any(part.startswith('.') for part in path.parts):
                 continue
             is_config = path.parts[0] == "config" and path.name in CONFIG_NAMES and not any(part.startswith('.') for part in path.parts)
-            is_service = len(path.parts) == 2 and path.parts[0] == "systemd" and path.name in SERVICE_NAMES
-            is_override = len(path.parts) == 3 and path.parts[0] == "systemd" and path.parts[1] in {name + '.d' for name in SERVICE_NAMES} and path.suffix == '.conf'
+            is_service = len(path.parts) == 2 and path.parts[0] == "systemd" and is_service_name(path.name)
+            is_override = len(path.parts) == 3 and path.parts[0] == "systemd" and path.parts[1].endswith('.d') and is_service_name(path.parts[1][:-2]) and path.suffix == '.conf'
             is_icon = path.parts[0] == "icons" and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".svg", ".webp"}
-            if not (is_config or is_service or is_override or is_icon or str(path) in {"topology.env", "code-sha256.json"}):
+            if not (is_config or is_service or is_override or is_icon or str(path) in {"topology.env", "code-sha256.json", "systemd/unit-states.txt"}):
                 continue
             raw = archive.extractfile(member).read()
             if is_config or str(path) == "code-sha256.json":

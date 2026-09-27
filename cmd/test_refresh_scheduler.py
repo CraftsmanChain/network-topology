@@ -1,5 +1,4 @@
 import fcntl
-import json
 from pathlib import Path
 import sys
 import tempfile
@@ -7,128 +6,99 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import refresh_scheduler as scheduler
+import refresh_scheduler as policy
 import multi_env_refresh as refresh
 
 
-class Process:
-    def __init__(self):
-        self.result = None
-        self.pid = 100
-
-    def poll(self):
-        return self.result
-
-
-class SchedulerTests(unittest.TestCase):
+class TimerPolicyTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
-        self.registry_path = self.root / 'environments.json'
-        self.now = 10000
-        self.launched = []
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.spec = {'code': 'a', 'data_root': str(self.root), 'topology_refresh_sec': 60}
 
-        def spawn(command, **kwargs):
-            process = Process()
-            self.launched.append((command[-1], process, kwargs))
-            return process
+    def save(self, **values):
+        refresh.dump_json(self.root / 'refresh-schedule.json', {'finished_at': policy.iso(10000), **values})
 
-        self.scheduler = scheduler.Scheduler(2, clock=lambda: self.now, spawn=spawn)
+    def test_minimum_interval_even_after_failure(self):
+        for success in (True, False):
+            self.save(success=success, duration_sec=30)
+            self.assertEqual(policy.due_at(self.spec, self.root), 10600)
 
-    def registry(self, *specs):
-        return {'environments': [{'code': code, 'data_root': code, 'topology_refresh_sec': interval}
-                                 for code, interval in specs]}
+    def test_slow_collection_waits_fifteen_minutes_after_finishing(self):
+        self.save(duration_sec=300)
+        self.assertEqual(policy.due_at(self.spec, self.root), 10600)
+        self.save(duration_sec=300.01)
+        self.assertEqual(policy.due_at(self.spec, self.root), 10900)
+        self.save(duration_sec=1200)
+        self.assertEqual(policy.due_at(self.spec, self.root), 10900)
 
-    def tick(self, registry):
-        self.scheduler.tick(registry, self.registry_path)
+    def test_larger_configured_interval_preserved(self):
+        self.save(duration_sec=700)
+        self.spec['topology_refresh_sec'] = 1800
+        self.assertEqual(policy.due_at(self.spec, self.root), 11800)
 
-    def test_slow_environment_does_not_block_fast_environment_next_cycle(self):
-        registry = self.registry(('large', 300), ('small', 60))
-        self.tick(registry)
-        self.assertEqual(len(self.launched), 2)
-        self.launched[1][1].result = 0
-        self.now += 10
-        self.tick(registry)
-        self.now += 59
-        self.tick(registry)
-        self.assertEqual(len(self.launched), 2)
-        self.now += 1
-        self.tick(registry)
-        self.assertEqual([job[0] for job in self.launched], ['large', 'small', 'small'])
-        self.assertEqual(len(self.scheduler.jobs), 2)
+    def test_first_install_uses_snapshot_time(self):
+        refresh.dump_json(self.root / 'status.json', {'checked_at': policy.iso(10000)})
+        self.assertEqual(policy.due_at(self.spec, self.root), 10600)
 
-    def test_concurrency_limit_and_oldest_due_first(self):
-        registry = self.registry(('a', 60), ('b', 60), ('c', 60))
-        self.tick(registry)
-        self.assertEqual(len(self.launched), 2)
-        self.launched[0][1].result = 0
-        self.now += 5
-        self.tick(registry)
-        self.assertEqual([job[0] for job in self.launched], ['a', 'b', 'c'])
+    def test_not_due_does_not_touch_schedule_or_call_collector(self):
+        self.save(duration_sec=700)
+        before = (self.root / 'refresh-schedule.json').read_bytes()
+        with patch.object(refresh.time, 'time', return_value=10899), patch.object(refresh, 'refresh_environment_unlocked') as collect:
+            self.assertTrue(refresh.refresh_environment(self.spec, {}, self.root, scheduled=True))
+            collect.assert_not_called()
+        self.assertEqual((self.root / 'refresh-schedule.json').read_bytes(), before)
 
-    def test_aliases_disabled_environment_and_active_jobs_cannot_duplicate(self):
-        registry = self.registry(('a', 60), ('disabled', 60))
-        registry['environments'][1]['refresh_enabled'] = False
-        registry['environments'].append({'code': 'alias', 'data_root': 'a'})
-        self.tick(registry)
-        self.tick(registry)
-        self.assertEqual(len(self.launched), 1)
+    def test_due_runs_and_records_real_completion(self):
+        self.save(duration_sec=700)
+        with patch.object(refresh.time, 'time', side_effect=[10900, 10900, 11600]), patch.object(refresh.time, 'monotonic', side_effect=[0, 700]), patch.object(refresh, 'refresh_environment_unlocked', return_value=True) as collect:
+            self.assertTrue(refresh.refresh_environment(self.spec, {}, self.root, scheduled=True))
+            collect.assert_called_once()
+        record = refresh.load_json(self.root / 'refresh-schedule.json', {})
+        self.assertEqual(record['duration_sec'], 700)
+        self.assertTrue(record['success'])
+        self.assertEqual(policy.due_at(self.spec, self.root), 12500)
 
-    def test_restarts_honor_persisted_finish_time_and_configuration_changes(self):
-        root = self.root / 'a'
-        refresh.dump_json(root / 'refresh-schedule.json', {'finished_at': scheduler.iso(self.now-10), 'success': True})
-        registry = self.registry(('a', 120))
-        self.tick(registry)
-        self.assertFalse(self.launched)
-        self.now += 30
-        registry['environments'][0]['topology_refresh_sec'] = 30
-        self.tick(registry)
-        self.assertEqual(len(self.launched), 1)
-
-    def test_initial_schedule_uses_existing_snapshot_timestamp(self):
-        refresh.dump_json(self.root / 'a/status.json', {'checked_at': scheduler.iso(self.now)})
-        self.tick(self.registry(('a', 300)))
-        self.assertFalse(self.launched)
-
-    def test_failure_retries_after_backoff_without_touching_good_snapshot(self):
-        root = self.root / 'a'
-        refresh.dump_json(root / 'topology.json', {'nodes': ['existing']})
-        registry = self.registry(('a', 300))
-        self.tick(registry)
-        self.launched[0][1].result = 1
-        self.now += 10
-        self.tick(registry)
-        self.now += 59
-        self.tick(registry)
-        self.assertEqual(len(self.launched), 1)
-        self.now += 1
-        self.tick(registry)
-        self.assertEqual(len(self.launched), 2)
-        self.assertEqual(json.loads((root/'topology.json').read_text()), {'nodes': ['existing']})
-
-    def test_timeout_frees_slot_and_records_failure(self):
-        registry = self.registry(('a', 300))
-        registry['environments'][0]['refresh_timeout_sec'] = 60
-        self.tick(registry)
-        self.now += 61
-        with patch.object(scheduler, 'stop_process') as stop:
-            self.tick(registry)
-        stop.assert_called_once()
-        self.assertFalse(self.scheduler.jobs)
-        self.assertTrue(refresh.load_json(self.root/'a/refresh-schedule.json', {})['timed_out'])
-
-    def test_failed_launch_does_not_stop_other_environments(self):
-        self.scheduler.spawn = lambda *args, **kwargs: (_ for _ in ()).throw(OSError('test'))
-        self.tick(self.registry(('a', 300)))
-        self.assertEqual(refresh.load_json(self.root/'a/refresh-schedule.json', {})['exit_code'], 127)
-
-    def test_shared_data_directory_lock_blocks_manual_duplicate(self):
+    def test_shared_directory_lock_blocks_timer_and_manual_duplicate(self):
         with (self.root / '.refresh.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             with patch.object(refresh, 'refresh_environment_unlocked') as collect:
-                self.assertFalse(refresh.refresh_environment({'code': 'a', 'data_root': str(self.root)}, {}, self.root))
+                self.assertFalse(refresh.refresh_environment(self.spec, {}, self.root))
+                self.assertTrue(refresh.refresh_environment(self.spec, {}, self.root, scheduled=True))
                 collect.assert_not_called()
+
+    def test_global_slots_skip_without_changing_timestamps(self):
+        with (self.root / '.refresh-slot-0.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with patch.dict(refresh.os.environ, {'TOPOLOGY_REFRESH_WORKERS': '1'}), patch.object(refresh, 'refresh_environment_unlocked') as collect:
+                self.assertTrue(refresh.refresh_environment(self.spec, {}, self.root, scheduled=True, limited=True))
+                collect.assert_not_called()
+        self.assertFalse((self.root / 'refresh-schedule.json').exists())
+
+    def test_exception_records_failure_and_releases_locks(self):
+        with patch.object(refresh, 'refresh_environment_unlocked', side_effect=RuntimeError('test')):
+            with self.assertRaises(RuntimeError):
+                refresh.refresh_environment(self.spec, {}, self.root, limited=True)
+        self.assertFalse(refresh.load_json(self.root / 'refresh-schedule.json', {})['success'])
+        self.assertEqual(refresh.COLLECTION_LOCK_FDS.get(), ())
+        with patch.object(refresh, 'refresh_environment_unlocked', return_value=True):
+            self.assertTrue(refresh.refresh_environment(self.spec, {}, self.root, limited=True))
+
+    def test_alias_and_disabled_environment_do_not_duplicate(self):
+        registry = {'environments': [self.spec, {**self.spec, 'code': 'alias'}, {**self.spec, 'code': 'disabled', 'refresh_enabled': False}]}
+        with patch.object(refresh, 'read_registry', return_value=(self.root / 'environments.json', registry)), patch.object(refresh, 'read_secrets', return_value={}), patch.object(refresh, 'refresh_environment', return_value=True) as collect:
+            self.assertTrue(refresh.run_once(scheduled=True))
+            self.assertEqual(collect.call_count, 1)
+            self.assertFalse(refresh.run_once(['unknown'], scheduled=True))
+
+    def test_child_inherits_locks(self):
+        def collect(*args):
+            self.assertEqual(len(refresh.COLLECTION_LOCK_FDS.get()), 2)
+            self.assertTrue(refresh.run_step('test', [sys.executable, '-c', 'import os, sys; [os.fstat(int(fd)) for fd in sys.argv[1:]]', *map(str, refresh.COLLECTION_LOCK_FDS.get())], self.root, refresh.os.environ.copy()))
+            return True
+        with patch.object(refresh, 'refresh_environment_unlocked', side_effect=collect):
+            self.assertTrue(refresh.refresh_environment(self.spec, {}, self.root, limited=True))
 
 
 if __name__ == '__main__':

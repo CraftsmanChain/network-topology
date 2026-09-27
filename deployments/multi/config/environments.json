@@ -11,10 +11,10 @@
       "secret_ref": "slxz_ali_gateway_token",
       "prom_skip_tls_verify": true,
       "refresh_enabled": true,
-      "topology_refresh_sec": 180,
-      "monitor_refresh_sec": 60,
-      "topology_error_after_sec": 900,
-      "monitor_error_after_sec": 180
+      "topology_refresh_sec": 600,
+      "monitor_refresh_sec": 600,
+      "topology_error_after_sec": 1800,
+      "monitor_error_after_sec": 1800
     },
     {
       "code": "slxz-zy",
@@ -26,10 +26,10 @@
       "secret_ref": "slxz_zy_gateway_token",
       "prom_skip_tls_verify": true,
       "refresh_enabled": true,
-      "topology_refresh_sec": 180,
-      "monitor_refresh_sec": 60,
-      "topology_error_after_sec": 900,
-      "monitor_error_after_sec": 180
+      "topology_refresh_sec": 600,
+      "monitor_refresh_sec": 600,
+      "topology_error_after_sec": 1800,
+      "monitor_error_after_sec": 1800
     },
     {
       "code": "zwzp",
@@ -40,10 +40,10 @@
       "prom_query_url": "https://10.255.171.88:17090/api/v1/query-gateway/prometheus/datasources/7acb5eec-f778-4edf-a7ed-1a036bf67e43",
       "secret_ref": "zwzp_gateway_token",
       "prom_skip_tls_verify": true,
-      "topology_refresh_sec": 300,
-      "monitor_refresh_sec": 60,
+      "topology_refresh_sec": 900,
+      "monitor_refresh_sec": 900,
       "topology_error_after_sec": 7200,
-      "monitor_error_after_sec": 180,
+      "monitor_error_after_sec": 7200,
       "refresh_enabled": true
     },
     {
@@ -56,10 +56,10 @@
       "secret_ref": "zwzp_gateway_token",
       "prom_skip_tls_verify": true,
       "refresh_enabled": false,
-      "topology_refresh_sec": 300,
-      "monitor_refresh_sec": 60,
+      "topology_refresh_sec": 900,
+      "monitor_refresh_sec": 900,
       "topology_error_after_sec": 7200,
-      "monitor_error_after_sec": 180
+      "monitor_error_after_sec": 7200
     },
     {
       "code": "yczy",
@@ -71,10 +71,10 @@
       "secret_ref": "yczy_gateway_token",
       "prom_skip_tls_verify": true,
       "refresh_enabled": true,
-      "topology_refresh_sec": 120,
-      "monitor_refresh_sec": 60,
-      "topology_error_after_sec": 900,
-      "monitor_error_after_sec": 600
+      "topology_refresh_sec": 600,
+      "monitor_refresh_sec": 600,
+      "topology_error_after_sec": 1800,
+      "monitor_error_after_sec": 1800
     }
   ]
 }

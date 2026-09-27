@@ -954,7 +954,7 @@
       const groups = state.lineMonitorGroups || [];
       const monitorItems = groups.flatMap(group => group.items || []);
       const downNodeIds = (state.faultIndex && state.faultIndex.downNodeIds) || new Set();
-      const downLinks = state.displayLinks.filter(link => link.down).length;
+      const downLinks = (state.faultLinks || []).length;
       const zoneRows = zoneDefinitions.map(zone => {
         const count = state.displayNodes.filter(node => node.zone === zone.id).length;
         return `<div class="list-row"><div><strong>${esc(zone.title)}</strong><small>${esc(zone.subtitle || '-')}</small></div><span class="badge">${count}</span></div>`;
@@ -2263,7 +2263,8 @@
         });
       });
       const displayNodeMap = new Map(displayNodes.map(node => [node.id, node]));
-      const displayFaultLinkCount = displayLinks.reduce((count, link) => count + (link.down ? 1 : 0), 0);
+      state.faultLinks = physicalFaultLinks();
+      const displayFaultLinkCount = state.faultLinks.length;
       state.displayNodes = displayNodes;
       state.displayLinks = displayLinks;
       state.displayFaultLinkCount = displayFaultLinkCount;
@@ -2697,12 +2698,14 @@
       svg.style.height = height + 'px';
 
       const zoneLayer = svgEl('g');
-      const linkLayer = svgEl('g');
+      const linkLayer = svgEl('g', { class: 'normal-link-layer' });
+      const faultLinkLayer = svgEl('g', { class: 'fault-link-layer' });
       const zoneTextLayer = svgEl('g', { class: 'zone-text-layer' });
       const nodeLayer = svgEl('g');
       focusLinkLayer = svgEl('g', { class: 'focus-link-layer' });
       svg.appendChild(zoneLayer);
       svg.appendChild(linkLayer);
+      svg.appendChild(faultLinkLayer);
       svg.appendChild(zoneTextLayer);
       svg.appendChild(nodeLayer);
       svg.appendChild(focusLinkLayer);
@@ -2746,8 +2749,9 @@
           ev.stopPropagation();
           showLinkDetail(link, a, b);
         });
-        linkLayer.appendChild(underlay);
-        linkLayer.appendChild(path);
+        const targetLayer = link.down ? faultLinkLayer : linkLayer;
+        targetLayer.appendChild(underlay);
+        targetLayer.appendChild(path);
       });
 
       state.displayNodes.forEach(node => {
@@ -3365,8 +3369,8 @@
       });
     }
 
-    function buildLinkTable(link) {
-      const rows = buildLinkDetailEntries(link).map(item => {
+    function buildLinkTable(link, exactOnly = false) {
+      const rows = (exactOnly ? link.raw : buildLinkDetailEntries(link)).map(item => {
         const srcNode = state.nodeById.get(item.source);
         const tgtNode = state.nodeById.get(item.target);
         const srcPort = findPortByName(item.source, item.sourcePort);
@@ -3461,7 +3465,27 @@
       const tgtPort = findPortByName(link.target, link.targetPort);
       const srcState = portStatusSnapshot(link.source, link.sourcePort, link.target, srcPort);
       const tgtState = portStatusSnapshot(link.target, link.targetPort, link.source, tgtPort);
-      return !srcState.up || !tgtState.up;
+      return (srcState.exists && !srcState.up) || (tgtState.exists && !tgtState.up);
+    }
+
+    function physicalFaultLinks() {
+      const seen = new Set();
+      const result = [];
+      for (const link of state.allLinks || []) {
+        if (!link.source || !link.target || !link.sourcePort || !link.targetPort || !rawLinkDown(link)) continue;
+        const source = findPortByName(link.source, link.sourcePort);
+        const target = findPortByName(link.target, link.targetPort);
+        const sourcePort = (source && (source.ifName || source.ifDescr || source.ifIndex)) || link.sourcePort;
+        const targetPort = (target && (target.ifName || target.ifDescr || target.ifIndex)) || link.targetPort;
+        // Reverse LLDP records describe the same port pair, not a second circuit.
+        const key = JSON.stringify([
+          [link.source, portKey(sourcePort)], [link.target, portKey(targetPort)]
+        ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push({ ...link, sourcePort, targetPort });
+      }
+      return result;
     }
 
     function renderFaultDetail() {
@@ -3473,7 +3497,7 @@
       const downNodeIds = (state.faultIndex && state.faultIndex.downNodeIds) || new Set();
       const metricNodes = state.metricNodes || [];
       const downDevices = metricNodes.filter(node => downNodeIds.has(node.id));
-      const downLinks = state.displayLinks.filter(link => link.down);
+      const downLinks = state.faultLinks || [];
       const downPortRows = [];
       metricNodes.forEach(node => {
         effectivePorts(node).forEach(port => {
@@ -3486,34 +3510,24 @@
         const view = rawNodeView(node);
         return `<div class="list-row" data-raw-node-id="${esc(node.id)}"><div><strong>${esc(view.label)}</strong><small>${esc(`${zoneTitle(view.zone)} / ${roleLabel(view.role, view.zone)} / ${node.id}`)}</small></div>${statusBadge(true)}</div>`;
       }).join('');
-      const linkRows = downLinks.map(link => {
-        const from = state.displayNodeById.get(link.from);
-        const to = state.displayNodeById.get(link.to);
-        return `<div class="list-row" data-link-id="${esc(link.id)}"><div><strong>${esc((from && from.label) || link.from)} - ${esc((to && to.label) || link.to)}</strong><small>${link.count} 条 / 最大 ${link.speed || '-'}G</small></div>${statusBadge(true)}</div>`;
-      }).join('');
+      const linkTable = buildLinkTable({ raw: downLinks }, true);
       const fullTable = `<table class="port-table" style="min-width:980px"><thead><tr><th>设备</th><th>ID</th><th>接口</th><th>状态</th><th>速率(Gbps)</th><th>发送</th><th>接收</th><th>占用%</th></tr></thead><tbody>${downPortRows.join('') || '<tr><td colspan="8">暂无 DOWN 端口</td></tr>'}</tbody></table>`;
       $('detail').innerHTML = `<div class="detail-title"><b>故障详情</b><span class="badge bad">${downLinks.length} 条链路</span></div>
         <div class="info-grid">
           <div class="info-item"><span>故障设备</span><b>${downDevices.length}</b></div>
-          <div class="info-item"><span>故障聚合链路</span><b>${downLinks.length}</b></div>
+          <div class="info-item"><span>故障端口链路</span><b>${downLinks.length}</b></div>
           <div class="info-item"><span>DOWN 端口</span><b>${downPortRows.length}</b></div>
           <div class="info-item"><span>隐藏管理链路</span><b>${state.showMeth ? 0 : state.hiddenMethLinks || 0}</b></div>
         </div>
         ${detailActionsHtml('<button id="fault-expand-toggle" class="detail-btn" type="button">展示全部列</button>')}
         <div class="section"><h2>故障设备</h2><div class="list">${deviceRows || '<div class="info-item">暂无故障设备</div>'}</div></div>
-        <div class="section"><h2>故障链路</h2><div class="list">${linkRows || '<div class="info-item">暂无故障链路</div>'}</div></div>
+        <div class="section"><h2>故障链路</h2><div class="detail-table-wrap">${linkTable}</div></div>
         <div class="section"><h2>DOWN 端口</h2><div class="detail-table-wrap">${fullTable}</div></div>`;
       bindDetailBackButton();
       const btn = $('fault-expand-toggle');
-      if (btn) btn.addEventListener('click', () => openDetailFullscreen('故障端口详情', fullTable));
+      if (btn) btn.addEventListener('click', () => openDetailFullscreen('故障链路与端口详情', `<h2>故障链路</h2>${linkTable}<h2>DOWN 端口</h2>${fullTable}`));
       $('detail').querySelectorAll('[data-raw-node-id]').forEach(row => {
         row.addEventListener('click', () => showRawDeviceDetail(row.dataset.rawNodeId));
-      });
-      $('detail').querySelectorAll('[data-link-id]').forEach(row => {
-        row.addEventListener('click', () => {
-          const link = state.displayLinks.find(item => item.id === row.dataset.linkId);
-          if (link) showLinkDetail(link, state.displayNodeById.get(link.from), state.displayNodeById.get(link.to));
-        });
       });
     }
 

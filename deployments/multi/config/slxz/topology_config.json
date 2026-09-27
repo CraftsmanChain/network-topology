@@ -47,7 +47,8 @@
   },
   "display": {
     "showPorts": false,
-    "showLabels": "auto"
+    "showLabels": "auto",
+    "showMethInterfaces": false
   },
   "aliases": {
     "pod3-leaf2": "pod3-leaf2",
@@ -62,7 +63,7 @@
     "group:TOR": "TOR",
     "group:OOB": "OOB"
   },
-  "title": "算力小镇集群网络拓扑",
+  "title": "算力小镇-阿里集群网络拓扑",
   "types": {
     "NXDXA01FO2-FO2-03-25-ALIzhuanxian": "switch",
     "NXDX01201F06-E02-01-master-FW01": "firewall",

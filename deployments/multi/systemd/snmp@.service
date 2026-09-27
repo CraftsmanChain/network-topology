@@ -1,0 +1,16 @@
+[Unit]
+Description=Refresh topology environment %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/ops/web/topology-multi
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/ops/web/topology-multi/topology.env
+Environment=TOPOLOGY_REFRESH_ENV=%i
+ExecStart=/usr/bin/python3 /ops/web/topology-multi/cmd/refresh.py
+TimeoutStartSec=30min
+TimeoutStopSec=45
+KillMode=control-group

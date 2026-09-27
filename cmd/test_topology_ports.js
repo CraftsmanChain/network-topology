@@ -20,9 +20,10 @@ function context() {
     buildLinkDetailEntries: link => link.raw,
     esc: value => String(value),
     aliasFor: () => '',
-    formatBytes: value => String(value)
+    formatBytes: value => String(value),
+    linkUsesMeth: link => /^(MEth|Mgmt\s+\d+)/i.test(link.sourcePort) || /^(MEth|Mgmt\s+\d+)/i.test(link.targetPort)
   });
-  for (const name of ['portKey', 'portIsUp', 'portStatusSnapshot', 'buildPortIndex', 'findPortByName', 'buildLinkTable']) {
+  for (const name of ['portKey', 'portIsUp', 'portStatusSnapshot', 'buildPortIndex', 'findPortByName', 'buildLinkTable', 'rawLinkDown', 'physicalFaultLinks']) {
     vm.runInContext(pageFunction(name), ctx);
   }
   return ctx;
@@ -34,6 +35,44 @@ test('explicit DOWN cannot be overridden by historical traffic', () => {
   assert.equal(ctx.portIsUp({ status: '1', transmit: 2600 }), false);
   assert.equal(ctx.portIsUp({ status: 0, transmit: 0, receive: 0 }), true);
   assert.equal(ctx.portIsUp({ status: null, transmit: 0, receive: 0 }), false);
+});
+
+test('fault count uses unique port pairs, not aggregate edges or LLDP directions', () => {
+  const ctx = context();
+  const pair = { source: 'a', sourcePort: 'Eth1', target: 'b', targetPort: 'Eth2' };
+  ctx.state.portIndex = ctx.buildPortIndex([
+    { id: 'a', ports: [{ ifName: 'Eth1', ifDescr: 'alias1', status: 1 }, { ifName: 'Eth3', status: 1 }] },
+    { id: 'b', ports: [{ ifName: 'Eth2', status: 1 }, { ifName: 'Eth4', status: 0 }] }
+  ]);
+  ctx.state.allLinks = [pair, pair, { source: 'b', sourcePort: 'Eth2', target: 'a', targetPort: 'Eth1' },
+    { ...pair, sourcePort: 'alias1' }, { ...pair, sourcePort: 'Eth3', targetPort: 'Eth4' }];
+  ctx.state.displayLinks = []; // Intra-group physical links may have no visible aggregate edge.
+  assert.equal(ctx.physicalFaultLinks().length, 2);
+  assert.equal(ctx.physicalFaultLinks()[0].sourcePort, 'Eth1');
+});
+
+test('hidden management ports and missing-only endpoints never count as faults', () => {
+  const ctx = context();
+  ctx.state.portIndex = ctx.buildPortIndex([{ id: 'a', ports: [{ ifName: 'Mgmt 1', status: 1 }, { ifName: 'MEth0', status: 1 }] }]);
+  ctx.state.allLinks = ['missing', 'Mgmt 1', 'MEth0'].map(sourcePort => ({ source: 'a', sourcePort, target: 'b', targetPort: 'missing' }));
+  assert.equal(ctx.physicalFaultLinks().length, 0);
+  ctx.state.showMeth = true;
+  assert.equal(ctx.physicalFaultLinks().length, 2);
+});
+
+test('fault detail exact table cannot add inferred or reverse entries', () => {
+  const ctx = context();
+  ctx.buildLinkDetailEntries = () => { throw Error('must not infer links'); };
+  const table = ctx.buildLinkTable({ raw: [{ source: 'a', sourcePort: 'one', target: 'b', targetPort: 'two' }] }, true);
+  assert.equal((table.match(/<tr/g) || []).length, 2);
+});
+
+test('idle fault paths render above normal paths, below nodes and selection', () => {
+  const render = pageFunction('render');
+  assert.ok(render.indexOf('svg.appendChild(linkLayer)') < render.indexOf('svg.appendChild(faultLinkLayer)'));
+  assert.ok(render.indexOf('svg.appendChild(faultLinkLayer)') < render.indexOf('svg.appendChild(nodeLayer)'));
+  assert.ok(render.indexOf('svg.appendChild(nodeLayer)') < render.indexOf('svg.appendChild(focusLinkLayer)'));
+  assert.ok(render.includes('const targetLayer = link.down ? faultLinkLayer : linkLayer'));
 });
 
 test('duplicate descriptions cannot select a random interface or shadow a real name', () => {

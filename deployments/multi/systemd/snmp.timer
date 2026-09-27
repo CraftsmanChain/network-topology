@@ -1,9 +1,9 @@
 [Unit]
-Description=Refresh topology data every 5 minutes
+Description=Legacy multi refresh timer (disabled; use snmp@.timer)
 
 [Timer]
-OnActiveSec=1min
-OnUnitInactiveSec=1min
+OnActiveSec=10min
+OnUnitInactiveSec=15min
 Unit=snmp.service
 
 [Install]

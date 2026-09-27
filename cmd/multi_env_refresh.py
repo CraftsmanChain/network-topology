@@ -5,18 +5,22 @@ import argparse
 import fcntl
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from atomic_json import write_json_atomic
+from contextlib import ExitStack
+from contextvars import ContextVar
+from refresh_scheduler import due_at, iso, positive_seconds
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REGISTRY = ROOT / "config" / "environments.json"
 DEFAULT_SECRETS = ROOT / "config" / ".env_sources.local.json"
-DEFAULT_LOOP_INTERVAL = 60
+COLLECTION_LOCK_FDS = ContextVar("collection_lock_fds", default=())
 
 
 def utc_now():
@@ -120,13 +124,25 @@ def run_step(label: str, command, cwd: Path, env: dict):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        pass_fds=COLLECTION_LOCK_FDS.get(),
     )
-    if process.stdout:
-        for line in process.stdout:
-            line = line.rstrip()
-            if line:
-                print(f"[{label}] {line}", flush=True)
-    return process.wait() == 0
+    try:
+        if process.stdout:
+            for line in process.stdout:
+                line = line.rstrip()
+                if line:
+                    print(f"[{label}] {line}", flush=True)
+        return process.wait() == 0
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        if process.stdout:
+            process.stdout.close()
 
 
 def load_topology_config(config_dir: Path):
@@ -231,16 +247,54 @@ def ensure_links(data_root: Path, env: dict, force=False):
     return False
 
 
-def refresh_environment(spec: dict, secrets: dict, registry_dir: Path):
+def refresh_environment(spec: dict, secrets: dict, registry_dir: Path, scheduled=False, limited=False):
     data_root = resolve_path(registry_dir, spec.get("data_root"))
     data_root.mkdir(parents=True, exist_ok=True)
-    with (data_root / ".refresh.lock").open("a") as lock:
+    with ExitStack() as locks:
+        lock = locks.enter_context((data_root / ".refresh.lock").open("a"))
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             print(f"[WARNING] refresh already running for data={data_root}", flush=True)
-            return False
-        return refresh_environment_unlocked(spec, secrets, registry_dir)
+            return scheduled
+        if scheduled and due_at(spec, data_root) > time.time():
+            print(f"[INFO] skip env={spec.get('code')} cooldown until {iso(due_at(spec, data_root))}", flush=True)
+            return True
+        lock_fds = [lock.fileno()]
+        if limited:
+            workers = positive_seconds(os.environ.get("TOPOLOGY_REFRESH_WORKERS"), 2)
+            for index in range(workers):
+                slot = locks.enter_context((registry_dir / f".refresh-slot-{index}.lock").open("a"))
+                try:
+                    fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    lock_fds.append(slot.fileno())
+                    break
+                except BlockingIOError:
+                    continue
+            else:
+                print(f"[INFO] skip env={spec.get('code')} all collection slots busy", flush=True)
+                return scheduled
+        token = COLLECTION_LOCK_FDS.set(tuple(lock_fds))
+        locks.callback(COLLECTION_LOCK_FDS.reset, token)
+        started = time.time()
+        clock_start = time.monotonic()
+        timeout = positive_seconds(spec.get("refresh_timeout_sec"), 1800, 60)
+        schedule = {"env": spec.get("code"), "started_at": iso(started), "success": False}
+        # A hard kill cannot erase the cooldown; normal/TERM exits replace this
+        # conservative deadline with the real finish time in the finally block.
+        dump_json(data_root / "refresh-schedule.json", {
+            **schedule, "finished_at": iso(started + timeout), "duration_sec": timeout, "interrupted": True,
+        })
+        success = False
+        try:
+            success = refresh_environment_unlocked(spec, secrets, registry_dir)
+            return success
+        finally:
+            duration = round(time.monotonic() - clock_start, 2)
+            dump_json(data_root / "refresh-schedule.json", {
+                **schedule, "finished_at": iso(time.time()), "duration_sec": duration, "success": success,
+            })
+            print(f"[INFO] completed env={spec.get('code')} success={success} duration={duration}s", flush=True)
 
 
 def refresh_environment_unlocked(spec: dict, secrets: dict, registry_dir: Path):
@@ -327,12 +381,17 @@ def normalize_env_filters(values):
     return selected
 
 
-def run_once(selected_envs=None):
+def run_once(selected_envs=None, scheduled=False):
     registry_path, registry = read_registry()
     secrets = read_secrets()
     registry_dir = registry_path.parent
     results = []
     selected = normalize_env_filters(selected_envs)
+    seen_roots = set()
+    known_codes = {str(spec.get("code") or "").strip() for spec in registry.get("environments") or []}
+    if selected - known_codes:
+        print(f"[ERROR] unknown environments: {sorted(selected - known_codes)}", flush=True)
+        return False
     for spec in registry.get("environments") or []:
         code = str(spec.get("code") or "").strip() or "<unknown>"
         if selected and code not in selected:
@@ -342,23 +401,23 @@ def run_once(selected_envs=None):
             print(f"[INFO] skip env={code} refresh_enabled=false")
             results.append(True)
             continue
-        results.append(refresh_environment(spec, secrets, registry_dir))
+        root = resolve_path(registry_dir, spec.get("data_root"))
+        if root in seen_roots:
+            continue
+        seen_roots.add(root)
+        results.append(refresh_environment(spec, secrets, registry_dir, scheduled=scheduled, limited=True))
     return all(results) if results else True
 
 
 def main():
     parser = argparse.ArgumentParser(description="refresh topology caches for multiple environments")
-    parser.add_argument("--loop", action="store_true", help="run continuously")
-    parser.add_argument("--interval", type=int, default=DEFAULT_LOOP_INTERVAL, help="loop interval seconds")
+    parser.add_argument("--scheduled", action="store_true", help="honor the persisted collection cooldown")
     parser.add_argument("--env", action="append", default=[], help="only refresh the specified environment code, can be repeated or comma-separated")
     args = parser.parse_args()
 
-    while True:
-        ok = run_once(args.env)
-        if not args.loop:
-            return 0 if ok else 1
-        time.sleep(max(10, int(args.interval)))
+    return 0 if run_once(args.env, scheduled=args.scheduled) else 1
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     raise SystemExit(main())
