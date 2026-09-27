@@ -131,11 +131,14 @@ def main():
     parser.add_argument("--root", required=True, help="Remote deployment root")
     parser.add_argument("--profile", required=True, help="Local deployment snapshot name")
     parser.add_argument("--sudo", action="store_true", help="Read remote configs through passwordless sudo")
+    parser.add_argument("--ssh-config", help="Optional SSH configuration file for jump-host connections")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.profile):
         parser.error("profile must be a lowercase name without path separators")
     if not args.root.startswith('/') or args.host.startswith('-'):
         parser.error("root must be absolute and host must not be an option")
+    if args.ssh_config and not Path(args.ssh_config).is_file():
+        parser.error("ssh-config must point to an existing file")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     private_dir = ROOT / ".local-backups" / args.profile
     private_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -145,7 +148,8 @@ def main():
     command = (["sudo", "-n"] if args.sudo else []) + ["python3", "-c", REMOTE_CAPTURE, args.root]
     fd = os.open(archive_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as output:
-        subprocess.run(["ssh", args.host, shlex.join(command)], stdout=output, check=True)
+        ssh = ["ssh"] + (["-F", args.ssh_config] if args.ssh_config else [])
+        subprocess.run(ssh + [args.host, shlex.join(command)], stdout=output, check=True)
     destination = ROOT / "deployments" / args.profile
     exported = export_archive(archive_path, destination)
     manifest = {

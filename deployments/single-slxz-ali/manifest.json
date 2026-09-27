@@ -1,0 +1,28 @@
+{
+  "host": "root@10.27.3.68",
+  "root": "/ops/web/topology",
+  "captured_at_utc": "20260927T034856Z",
+  "private_archive": ".local-backups/single-slxz-ali/20260927T034856Z.tar.gz",
+  "files_sha256": {
+    "config/architecture_config.json": "6f858c3e31a11a3540ae47e96e0fe7c4a4d481a8ac5ef00d6097697cb86f6e16",
+    "config/group_rules.json": "2474e0da49030e009c6d5e1652ab9685aafaf7d487dbcd8d8ade5302ced22895",
+    "config/link_overrides.json": "435506a5eb7322c9f8cc378b05494e4cac39dce701da615932803ad5034395dd",
+    "config/positions.json": "c2a946b8419ea50bf68726dabb8899c017e0ef38cef00d217bc54e6ad0870d96",
+    "config/topology_config.json": "a11d3766a12ff39195b4b7cce08d1a93ff83afc25a961b328ef7fb79df1408b3",
+    "icons/core-bad.png": "070ebc2c54ddd222c99d08766d888b6637a37234162585df81c3bda3b2da8f1a",
+    "icons/core.png": "67e6c6c4f4d3d26a88b743ffd31d1b6e600fb40e797e23401f9652cca89957d0",
+    "icons/firewall.png": "1dfac31a1d4bade279e78615702b47bb93bf199311b89d7e35df0271eb5b953e",
+    "icons/sigle-sw-bad.png": "1e2eb5aed4b3f0c6c22d084557e654dc1bed5759e9f1b37061068c52bcd920d0",
+    "icons/sigle-sw.png": "24ed375348e55ec75c9836f591a09ed9b655c26d9778a0323d2d55d3279b5881",
+    "icons/sw-bad.png": "416eb1a4283cb543ab9e151991d7f252401f9bc43971e1af9f84e826f1c1da7d",
+    "icons/sw.png": "9fe62f4c1316aaea994044c18195286904a0ce0743f9a6dc4655870b113fdf9c",
+    "icons/topology-switch-access.svg": "f29f7767bb18e7b4e781f14dba912b927e3c5f9a8d74cc12419e35d11afb135f",
+    "icons/topology-switch-agg.svg": "6b812a0e7b4ea2470106aacd1d1ff4aed83939def928a11e05787454d03ab13c",
+    "topology.env": "aa7040fbb3740d2b4ee2b855213b0ad4a7f6c1da9b7118c774049a63f4984a5a",
+    "systemd/snmp.service": "4c961dc116ceffdaf89a613939e3e47e8a93326ae60f3c113007d49cdb96f21a",
+    "systemd/snmp.timer": "ac2bbf22326686aef24f50b1d1bfc59eccca39859ea4682f9c482daeeb3c5f07",
+    "systemd/topology-web.service": "8d58804c63ebb349afa24b43d60aa4afe37fd32585755e43e732984ad9b6126c",
+    "systemd/unit-states.txt": "117023ea4ab52f1de188732b17b66b6ec4378d0053239d0ab1b71b8dada76e67",
+    "code-sha256.json": "ca48f7f3d6a3a331ea4fce0d563a90a846ab4dba0bd106211a0d69b77cf8bd09"
+  }
+}

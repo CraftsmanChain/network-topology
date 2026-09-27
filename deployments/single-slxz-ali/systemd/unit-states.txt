@@ -1,0 +1,4 @@
+snmp.service          static  -
+snmp_exporter.service enabled enabled
+topology-web.service  enabled enabled
+snmp.timer            enabled enabled

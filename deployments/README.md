@@ -40,7 +40,13 @@ python3 cmd/backup_deployment.py --host root@10.111.201.1 \
   --root /ops/web/topology --profile single-yczy
 python3 cmd/backup_deployment.py --host ubuntu@10.255.171.88 \
   --root /ops/web/topology-multi --profile multi --sudo
+python3 cmd/backup_deployment.py --host root@10.27.3.68 \
+  --root /ops/web/topology --profile single-slxz-ali --ssh-config /path/to/jump.conf
 ```
+
+For the slxz-ali single node, connect through `ubuntu@10.80.192.232` using
+your SSH configuration. `--ssh-config` passes that file to `ssh -F`; it does
+not change the default SSH configuration or save passwords in the project.
 
 `deployments/<profile>/` contains public config snapshots, icons, systemd
 units, optional drop-ins, and a capture manifest. JSON formatting is normalized

@@ -5,12 +5,31 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import backup_deployment as backup
 
 
 class BackupTests(unittest.TestCase):
+    def test_capture_uses_explicit_ssh_config_for_jump_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / 'jump.conf'
+            config.write_text('Host target\n  HostName 10.0.0.1\n')
+
+            def capture(command, stdout, check):
+                self.assertEqual(command[:4], ['ssh', '-F', str(config), 'root@target'])
+                self.assertTrue(check)
+                with tarfile.open(fileobj=stdout, mode='w:gz'):
+                    pass
+
+            arguments = ['backup_deployment.py', '--host', 'root@target', '--root', '/srv/topology', '--profile', 'test', '--ssh-config', str(config)]
+            with patch.object(backup, 'ROOT', root), patch.object(sys, 'argv', arguments), patch.object(backup.subprocess, 'run', side_effect=capture) as run:
+                backup.main()
+                run.assert_called_once()
+            self.assertTrue((root / 'deployments/test/manifest.json').exists())
+
     def test_urls_and_multiple_environment_assignments_are_redacted(self):
         value = backup.redact_json({'prom_query_url': 'https://user:password@vm/query?token=secret&tenant=1'})
         self.assertNotIn('password', value['prom_query_url'])

@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "backgroundColor": "#1f2637",
+  "sidebar": {
+    "visible": true,
+    "sections": [
+      "overview",
+      "filters",
+      "search",
+      "alerts"
+    ]
+  },
+  "layout": {
+    "mode": "grid",
+    "forceStrength": 0.3,
+    "gridCell": 120,
+    "compact": true
+  },
+  "default_icons": {
+    "group": "icons/sw.png",
+    "device": "icons/sigle-sw.png",
+    "device_bad": "icons/sigle-sw-bad.png",
+    "group_bad": "icons/sw-bad.png",
+    "core_switch": "icons/core.png",
+    "core_switch_bad": "icons/core-bad.png",
+    "firewall": "icons/firewall.png",
+    "firewall_bad": "icons/core-bad.png",
+    "firewall_main": "icons/firewall.png",
+    "firewall_backup": "icons/firewall.png"
+  },
+  "features": {
+    "line_monitors": {
+      "enabled": false,
+      "names": [],
+      "auto_groups": {
+        "enabled": false
+      }
+    }
+  },
+  "refresh": {
+    "devices_ms": 5000,
+    "links_ms": 3000
+  },
+  "dynamic_links": {
+    "debounce_ms": 500,
+    "grace_ms": 3000
+  },
+  "display": {
+    "showPorts": false,
+    "showLabels": "auto",
+    "showMethInterfaces": false
+  },
+  "aliases": {
+    "pod3-leaf2": "pod3-leaf2",
+    "group:leaf-group3-pod1": "Leaf-Group3-pod1",
+    "NXDXA01FO2-FO2-03-25-huoshanzhuanxian": "火山专线",
+    "NXDX01201F01-D01-01-23": "D01-01-23",
+    "NXDXA01FO2-FO2-03-25-ALIzhuanxian": "阿里专线",
+    "NXDX01201F06-E02-01-master-FW01": "防火墙01",
+    "NXDX01201F06-E02-09-100GPubic-AGG1": "Public-AGG01",
+    "NXDX01201F06-E02-01-25GYW-AGG1": "YW-AGG1",
+    "NXDX01201F06--E02-03-25GYW-AGG2": "YW-AGG2",
+    "group:TOR": "TOR",
+    "group:OOB": "OOB"
+  },
+  "title": "算力小镇-阿里集群网络拓扑",
+  "types": {
+    "NXDXA01FO2-FO2-03-25-ALIzhuanxian": "switch",
+    "NXDX01201F06-E02-01-master-FW01": "firewall",
+    "NXDX01201F06-E02-09-100GPubic-AGG1": "switch",
+    "NXDX01201F06-E02-01-25GYW-AGG1": "switch",
+    "NXDX01201F06--E02-03-25GYW-AGG2": "switch",
+    "group:TOR": "switch",
+    "group:OOB": "switch"
+  },
+  "visibility": {
+    "devices": {
+      "NXDX01201F06-E02-01-25GYW-AGG1": false,
+      "NXDX01201F06-E02-01-master-FW01": false,
+      "NXDX01201F06--E02-03-25GYW-AGG2": false,
+      "NXDX01201F01-D01-01-23": false,
+      "NXDX01201F06-E02-09-100GPubic-AGG1": false,
+      "NXDXA01FO2-FO2-03-25-ALIzhuanxian": false,
+      "NXDXA01FO2-FO2-03-25-huoshanzhuanxian": false
+    },
+    "groups": {
+      "TOR": false,
+      "OOB": false
+    }
+  },
+  "profiles": {},
+  "home_topology": "main"
+}
