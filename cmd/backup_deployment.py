@@ -18,7 +18,7 @@ CONFIG_NAMES = {
     "topology_config.json", "architecture_config.json", "group_rules.json",
     "positions.json", "link_overrides.json", "port_aliases.json", "environments.json", "environment.json",
 }
-SERVICE_NAMES = {"snmp.service", "snmp.timer", "snmp@.service", "snmp@.timer", "topology-web.service"}
+SERVICE_NAMES = {"snmp.service", "snmp.timer", "snmp@.service", "snmp@.timer", "topology-snmp.service", "topology-snmp.timer", "topology-web.service"}
 
 
 def is_service_name(name):
@@ -34,7 +34,7 @@ with tarfile.open(fileobj=sys.stdout.buffer, mode="w|gz") as archive:
         path = os.path.join(root, name)
         if os.path.exists(path):
             archive.add(path, arcname=name)
-    names = {"snmp.service", "snmp.timer", "snmp@.service", "snmp@.timer", "topology-web.service"}
+    names = {"snmp.service", "snmp.timer", "snmp@.service", "snmp@.timer", "topology-snmp.service", "topology-snmp.timer", "topology-web.service"}
     for path in glob.glob("/etc/systemd/system/snmp@*"):
         name = os.path.basename(path)
         names.add(name[:-2] if name.endswith(".d") else name)
@@ -43,7 +43,7 @@ with tarfile.open(fileobj=sys.stdout.buffer, mode="w|gz") as archive:
             path = "/etc/systemd/system/" + name + suffix
             if os.path.exists(path):
                 archive.add(path, arcname="systemd/" + name + suffix)
-    units = subprocess.run(["systemctl", "list-unit-files", "snmp*", "topology-web.service", "--no-pager", "--no-legend"], capture_output=True, text=True, check=True).stdout
+    units = subprocess.run(["systemctl", "list-unit-files", "snmp*", "topology-snmp*", "topology-web.service", "--no-pager", "--no-legend"], capture_output=True, text=True, check=True).stdout
     for path in sorted(glob.glob("/etc/systemd/system/timers.target.wants/snmp@*.timer")):
         units += os.path.basename(path) + " enabled\n"
     data = units.encode()

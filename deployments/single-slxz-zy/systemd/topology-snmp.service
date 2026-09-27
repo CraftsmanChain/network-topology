@@ -1,0 +1,14 @@
+[Unit]
+Description=Refresh topology data (configured environment)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/ops/web/topology
+Environment=TOPOLOGY_MODE=single
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/ops/web/topology/topology.env
+ExecStart=/usr/bin/python3 /ops/web/topology/cmd/refresh.py
+TimeoutStartSec=30min
+KillMode=control-group

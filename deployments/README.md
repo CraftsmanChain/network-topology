@@ -42,9 +42,11 @@ python3 cmd/backup_deployment.py --host ubuntu@10.255.171.88 \
   --root /ops/web/topology-multi --profile multi --sudo
 python3 cmd/backup_deployment.py --host root@10.27.3.68 \
   --root /ops/web/topology --profile single-slxz-ali --ssh-config /path/to/jump.conf
+python3 cmd/backup_deployment.py --host root@10.80.192.233 \
+  --root /ops/web/topology --profile single-slxz-zy --ssh-config /path/to/jump.conf
 ```
 
-For the slxz-ali single node, connect through `ubuntu@10.80.192.232` using
+For the slxz-ali and slxz-zy single nodes, connect through `ubuntu@10.80.192.232` using
 your SSH configuration. `--ssh-config` passes that file to `ssh -F`; it does
 not change the default SSH configuration or save passwords in the project.
 
@@ -68,8 +70,9 @@ as a credential backup; it is intentionally not recoverable from GitHub.
    recovery, inspect the private archive and restore the missing credential
    files with restrictive permissions; never serve or publish the archive.
 3. Run `systemctl daemon-reload`, restart `topology-web.service`, and start
-   `snmp.service`. In single mode, enable/start the captured `snmp.timer` after
-   collection. In scheduled multi mode, disable both legacy units and enable
+   the captured collector (`snmp.service`, or `topology-snmp.service` on
+   single-slxz-zy). In single mode, enable/start its matching captured timer
+   after collection. In scheduled multi mode, disable both legacy units and enable
    the captured `snmp@<code>.timer` instances listed in `systemd/unit-states.txt`;
    do not run both scheduling mechanisms.
 4. Verify `/topology/api/health`, `/topology/api/runtime/status`, and the actual

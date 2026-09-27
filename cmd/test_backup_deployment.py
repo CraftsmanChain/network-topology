@@ -56,6 +56,8 @@ class BackupTests(unittest.TestCase):
                 'systemd/snmp@.timer': '[Timer]\nOnUnitInactiveSec=1min\n',
                 'systemd/snmp@yczy.service.d/timeout.conf': '[Service]\nTimeoutStartSec=30min\n',
                 'systemd/unit-states.txt': 'snmp@yczy.timer enabled enabled\n',
+                'systemd/topology-snmp.service': '[Service]\nType=oneshot\n',
+                'systemd/topology-snmp.timer': '[Timer]\nOnUnitInactiveSec=5min\n',
             }
             with tarfile.open(archive_path, 'w:gz') as archive:
                 for name, value in files.items():
@@ -65,7 +67,7 @@ class BackupTests(unittest.TestCase):
                     archive.addfile(info, io.BytesIO(data))
             dest = root / 'public'
             exported = backup.export_archive(archive_path, dest)
-            self.assertEqual(len(exported), 7)
+            self.assertEqual(len(exported), 9)
             self.assertNotIn('"secret"', (dest / 'config/zy/environment.json').read_text())
             self.assertFalse((dest / 'config/.users.local').exists())
             registry = json.loads((dest / 'config/environments.json').read_text())
