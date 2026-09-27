@@ -16,7 +16,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_NAMES = {
     "topology_config.json", "architecture_config.json", "group_rules.json",
-    "positions.json", "link_overrides.json", "port_aliases.json", "environments.json",
+    "positions.json", "link_overrides.json", "port_aliases.json", "environments.json", "environment.json",
 }
 SERVICE_NAMES = {"snmp.service", "snmp.timer", "snmp@.service", "snmp@.timer", "topology-web.service"}
 
@@ -51,7 +51,7 @@ with tarfile.open(fileobj=sys.stdout.buffer, mode="w|gz") as archive:
     info.size = len(data)
     archive.addfile(info, io.BytesIO(data))
     hashes = {}
-    for name in ("cmd/refresh.py", "cmd/refresh_scheduler.py", "cmd/multi_env_refresh.py", "cmd/snmp.py", "cmd/devices.py", "cmd/flapping.py", "cmd/atomic_json.py", "cmd/lldp.go", "topology.html", "config.html", "login.html", "server/main.go", "server/topology-web"):
+    for name in ("cmd/refresh.py", "cmd/refresh_scheduler.py", "cmd/multi_env_refresh.py", "cmd/snmp.py", "cmd/devices.py", "cmd/flapping.py", "cmd/atomic_json.py", "cmd/lldp.go", "topology.html", "config.html", "login.html", "server/main.go", "server/topology-web", "topology-web"):
         path = os.path.join(root, name)
         if os.path.isfile(path):
             with open(path, "rb") as source:

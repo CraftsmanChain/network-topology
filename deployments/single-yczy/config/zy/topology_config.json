@@ -1,0 +1,187 @@
+{
+  "version": 1,
+  "backgroundColor": "#1f2637",
+  "sidebar": {
+    "visible": true,
+    "sections": [
+      "overview",
+      "filters",
+      "search",
+      "alerts"
+    ]
+  },
+  "layout": {
+    "mode": "grid",
+    "forceStrength": 0.3,
+    "gridCell": 120,
+    "compact": true
+  },
+  "responsive": {
+    "auto_fit_on_load": true,
+    "mode": "contain",
+    "min_scale": 0.2,
+    "small_screen_threshold": 1280,
+    "node_scale_small": 0.85,
+    "font_scale_small": 0.9,
+    "enable_dragView_on_small": true
+  },
+  "default_icons": {
+    "group": "icons/sw.png",
+    "device": "icons/sigle-sw.png",
+    "device_bad": "icons/sigle-sw-bad.png",
+    "group_bad": "icons/sw-bad.png",
+    "core_switch": "icons/core.png",
+    "core_switch_bad": "icons/core-bad.png",
+    "firewall": "icons/firewall.png",
+    "firewall_bad": "icons/core-bad.png",
+    "firewall_main": "icons/firewall.png",
+    "firewall_backup": "icons/firewall.png"
+  },
+  "features": {
+    "line_monitors": {
+      "enabled": true,
+      "title": "专线监控",
+      "refresh_ms": 5000,
+      "status_source": "monitor_or_ports",
+      "groups": [
+        {
+          "id": "acc02-lines",
+          "title": "ACC02 专线监控",
+          "label": "专线",
+          "anchor_device_id": "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02",
+          "device_id": "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02",
+          "zone": "fabric",
+          "role": 3,
+          "line_color": "#22d3ee",
+          "items": [
+            {
+              "id": "sh",
+              "source_id": "sh",
+              "label": "上海专线",
+              "device_id": "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02",
+              "ports": [
+                "Eth-Trunk44"
+              ]
+            },
+            {
+              "id": "nx",
+              "source_id": "nx",
+              "label": "宁夏专线",
+              "device_id": "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02",
+              "ports": [
+                "25GE1/0/44",
+                "25GE2/0/44"
+              ]
+            },
+            {
+              "id": "js",
+              "source_id": "js",
+              "label": "金山专线",
+              "device_id": "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02",
+              "ports": [
+                "25GE2/0/37"
+              ]
+            },
+            {
+              "id": "hs",
+              "source_id": "hs",
+              "label": "火山专线",
+              "device_id": "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02",
+              "ports": [
+                "25GE1/0/37"
+              ]
+            },
+            {
+              "id": "zp-nx",
+              "source_id": "zp-nx",
+              "label": "周浦-宁夏专线",
+              "device_id": "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02",
+              "ports": [
+                "25GE1/0/44",
+                "25GE2/0/44"
+              ]
+            },
+            {
+              "id": "zp-zj",
+              "source_id": "zp-zj",
+              "label": "周浦-张江专线",
+              "device_id": "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02",
+              "ports": [
+                "25GE1/0/43",
+                "25GE2/0/43"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "synthetic_devices": {
+      "devices": [
+        {
+          "id": "NXBHZY_102_-7-B-09-33U_FW01",
+          "label": "防火墙-主",
+          "ip": "172.16.201.1",
+          "type": "firewall",
+          "zone": "security",
+          "cluster": "default",
+          "role": 1,
+          "fixed_status": "UP"
+        },
+        {
+          "id": "NXBHZY_Backup_FW_02_102_7B-10",
+          "label": "防火墙-备",
+          "ip": "172.16.202.2",
+          "type": "firewall",
+          "zone": "security",
+          "cluster": "default",
+          "role": 1,
+          "fixed_status": "UP"
+        }
+      ]
+    },
+    "port_state_overrides": {
+      "rules": [
+        {
+          "device_type": "firewall",
+          "state": "UP"
+        }
+      ]
+    }
+  },
+  "refresh": {
+    "devices_ms": 5000,
+    "links_ms": 3000
+  },
+  "dynamic_links": {
+    "debounce_ms": 500,
+    "grace_ms": 3000
+  },
+  "display": {
+    "showPorts": false,
+    "showLabels": "auto"
+  },
+  "aliases": {
+    "NXBHZY_102_7-B-05-46U_25Gnei_AGG01": "25G 汇聚01",
+    "NXBHZY_102_-7-B-07-46U_25Gnei_AGG02": "25G 汇聚02",
+    "NXBHZY_102_-7-B-09-36U_SW00B_ACC1": "带外交换01",
+    "NXBHZY_102_-7-B-10-36U_PCOOB_ACC2": "带外交换02",
+    "NXBHZY_102_-7-B-09/10-42U_Public_AGG01": "公网汇聚01",
+    "NXBHZY_102_-7-B-09/10-42U_25Gnei_ACC01": "25G 接入01",
+    "NXBHZY_102_-7-B-09/10-30U_25Gnei_ACC02": "25G 接入02",
+    "NXBHZY_103_1B-09/10-34U_25Gnei_ACC03": "25G 接入03",
+    "NXBHZY_103_1B-08_PCOOB_ACC3": "带外交换03",
+    "NXBHZY_102_-7-B-09-33U_FW01": "防火墙-主",
+    "NXBHZY_Backup_FW_02_102_7B-10": "防火墙-备"
+  },
+  "title": "银川-智元集群网络拓扑",
+  "types": {
+    "NXBHZY_102_-7-B-09-33U_FW01": "firewall",
+    "NXBHZY_Backup_FW_02_102_7B-10": "firewall"
+  },
+  "visibility": {
+    "devices": {},
+    "groups": {}
+  },
+  "profiles": {},
+  "home_topology": "main"
+}

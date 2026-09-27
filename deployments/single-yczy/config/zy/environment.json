@@ -1,0 +1,15 @@
+{
+  "default": "yczy",
+  "environments": [
+    {
+      "code": "yczy",
+      "name": "银川-智元",
+      "config_dir": ".",
+      "data_root": "../../runtime-data/zy",
+      "prom_query_url": "http://127.0.0.1:9090/api/v1/query",
+      "vm_targets_url": "http://127.0.0.1:9090/api/v1/targets",
+      "topology_error_after_sec": 900,
+      "monitor_error_after_sec": 180
+    }
+  ]
+}

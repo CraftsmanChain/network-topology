@@ -16,11 +16,13 @@ Both systemd services read `<deployment-root>/topology.env`:
   must not disappear just because they no longer advertise LLDP neighbors.
 - `LLDP_REFRESH_SEC` controls single-mode neighbor refresh. The equivalent
   registry field is `lldp_refresh_sec`. `snmp.timer` controls single-mode cadence.
-- Multi mode sets `TOPOLOGY_REFRESH_LOOP=1` and runs `snmp.service` as a
-  persistent scheduler, with `snmp.timer` disabled. Each environment's
-  `topology_refresh_sec` is its wait after completion; concurrency is capped by
-  `TOPOLOGY_REFRESH_WORKERS` (default 2). Aliases sharing a data directory are
-  collected only once. `refresh-schedule.json` preserves completion times.
+- Multi mode uses independent `snmp@<code>.service` oneshots and
+  `snmp@<code>.timer` units, with the legacy `snmp.service`/`snmp.timer` disabled.
+  Each timer checks eligibility every minute; actual collection waits at least
+  600 seconds after completion, or at least 900 seconds after a run exceeding
+  300 seconds. Concurrency is capped by `TOPOLOGY_REFRESH_WORKERS` (default 2).
+  Data-directory locks prevent duplicate writers, and `refresh-schedule.json`
+  preserves completion times across restarts.
 
 Use the service files and `topology.env` in `examples/` or `examples/multi/`
 when creating a new deployment. Keep the existing node's configuration and
@@ -34,6 +36,8 @@ From the repository root, with the appropriate VPN connected:
 ```sh
 python3 cmd/backup_deployment.py --host root@10.102.10.6 \
   --root /ops/web/topology --profile single-zwzp
+python3 cmd/backup_deployment.py --host root@10.111.201.1 \
+  --root /ops/web/topology --profile single-yczy
 python3 cmd/backup_deployment.py --host ubuntu@10.255.171.88 \
   --root /ops/web/topology-multi --profile multi --sudo
 ```
@@ -59,8 +63,9 @@ as a credential backup; it is intentionally not recoverable from GitHub.
    files with restrictive permissions; never serve or publish the archive.
 3. Run `systemctl daemon-reload`, restart `topology-web.service`, and start
    `snmp.service`. In single mode, enable/start the captured `snmp.timer` after
-   collection. In scheduled multi mode, disable `snmp.timer` and enable the
-   persistent `snmp.service` instead; do not run both scheduling mechanisms.
+   collection. In scheduled multi mode, disable both legacy units and enable
+   the captured `snmp@<code>.timer` instances listed in `systemd/unit-states.txt`;
+   do not run both scheduling mechanisms.
 4. Verify `/topology/api/health`, `/topology/api/runtime/status`, and the actual
    sample endpoints in `topology.json` and `links.json`.
 

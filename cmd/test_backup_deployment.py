@@ -32,6 +32,7 @@ class BackupTests(unittest.TestCase):
                 'icons/._switch.png': 'resource-fork',
                 'config/group_rules.json': '{"groups":[]}',
                 'config/environments.json': '{"secret_ref":"vm_token","token":"secret"}',
+                'config/zy/environment.json': '{"environments":[{"code":"yczy","token":"secret"}]}',
                 'systemd/snmp.service': '[Service]\nEnvironment=PROM_BEARER_TOKEN=secret\nEnvironment=ENV_SOURCES_FILE=/srv/secrets.json\n',
                 'systemd/snmp@.timer': '[Timer]\nOnUnitInactiveSec=1min\n',
                 'systemd/snmp@yczy.service.d/timeout.conf': '[Service]\nTimeoutStartSec=30min\n',
@@ -45,7 +46,8 @@ class BackupTests(unittest.TestCase):
                     archive.addfile(info, io.BytesIO(data))
             dest = root / 'public'
             exported = backup.export_archive(archive_path, dest)
-            self.assertEqual(len(exported), 6)
+            self.assertEqual(len(exported), 7)
+            self.assertNotIn('"secret"', (dest / 'config/zy/environment.json').read_text())
             self.assertFalse((dest / 'config/.users.local').exists())
             registry = json.loads((dest / 'config/environments.json').read_text())
             self.assertEqual(registry['secret_ref'], 'vm_token')
